@@ -2,11 +2,13 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { EventEmitter } = require("node:events");
 
 const {
   KEYCHAIN_ACCOUNT,
   KEYCHAIN_SERVICE,
   promptAndStoreApiKey,
+  readHiddenLine,
   readKeychainApiKey,
   resolveApiKey,
   validateApiKey,
@@ -59,10 +61,48 @@ test("readKeychainApiKey reads only stdout and validates the stored value", () =
   ]);
 });
 
-test("Keychain setup prompts securely and never puts the secret in argv", () => {
+test("hidden Agent-key input uses Cribble wording and never echoes the secret", async () => {
+  class FakeInput extends EventEmitter {
+    isTTY = true;
+    isRaw = false;
+    paused = true;
+
+    isPaused() {
+      return this.paused;
+    }
+
+    pause() {
+      this.paused = true;
+    }
+
+    resume() {
+      this.paused = false;
+    }
+
+    setRawMode(enabled) {
+      this.isRaw = enabled;
+    }
+  }
+
+  const input = new FakeInput();
+  const writes = [];
+  const output = { isTTY: true, write: (value) => writes.push(value) };
+  const reading = readHiddenLine({ input, output });
+  input.emit("data", `${API_KEY}\n`);
+
+  assert.equal(await reading, API_KEY);
+  assert.match(writes.join(""), /Cribble Agent key/);
+  assert.doesNotMatch(writes.join(""), /password/i);
+  assert.doesNotMatch(writes.join(""), new RegExp(API_KEY));
+  assert.equal(input.isRaw, false);
+  assert.equal(input.paused, true);
+});
+
+test("Keychain setup sends the secret over stdin and never puts it in argv", async () => {
   let invocation;
-  promptAndStoreApiKey({
+  await promptAndStoreApiKey({
     platform: "darwin",
+    readSecretFn: async () => API_KEY,
     spawnSyncFn: (command, args, options) => {
       invocation = { command, args, options };
       return { status: 0 };
@@ -70,6 +110,7 @@ test("Keychain setup prompts securely and never puts the secret in argv", () => 
   });
 
   assert.equal(invocation.args.at(-1), "-w");
-  assert.equal(invocation.options.stdio, "inherit");
+  assert.deepEqual(invocation.options.stdio, ["pipe", "pipe", "pipe"]);
+  assert.equal(invocation.options.input, `${API_KEY}\n${API_KEY}\n`);
   assert.equal(invocation.args.some((argument) => argument.startsWith("crib_ag_")), false);
 });

@@ -55,6 +55,30 @@ test("loadUsage invokes the configured collector without a shell", () => {
   assert.deepEqual(invocation.options.stdio, ["ignore", "pipe", "pipe"]);
 });
 
+test("loadUsage invokes the bundled collector through an absolute Node path", () => {
+  let invocation;
+  const result = loadUsage(
+    {},
+    {
+      baseDirectory: "/app/cribble-agent",
+      existsSyncFn: (filePath) => filePath === "/app/cribble-agent/node_modules/.bin/ccusage",
+      nodePath: "/absolute/node",
+      execFileSyncFn: (command, args, options) => {
+        invocation = { command, args, options };
+        return '{"daily":[]}';
+      },
+    },
+  );
+
+  assert.deepEqual(result, { daily: [] });
+  assert.equal(invocation.command, "/absolute/node");
+  assert.deepEqual(invocation.args, [
+    "/app/cribble-agent/node_modules/.bin/ccusage",
+    "daily",
+    "--json",
+  ]);
+});
+
 test("loadUsage sanitizes collector failures before printing them", () => {
   const secret = `crib_ag_${"e".repeat(64)}`;
   assert.throws(

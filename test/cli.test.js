@@ -10,6 +10,31 @@ const API_KEY = `crib_ag_${"c".repeat(64)}`;
 const CLIENT_ID = "123e4567-e89b-42d3-a456-426614174000";
 
 test("parseArgs models the explicit background lifecycle", () => {
+  assert.deepEqual(parseArgs(["connect"]), {
+    command: "auth",
+    action: "set",
+    days: 7,
+    intervalMinutes: 15,
+    endpoint: undefined,
+    dryRun: false,
+    background: false,
+    json: false,
+    color: undefined,
+  });
+  assert.deepEqual(parseArgs(["start", "--interval=30", "--days", "14"]), {
+    command: "background",
+    action: "install",
+    days: 14,
+    intervalMinutes: 30,
+    endpoint: undefined,
+    dryRun: false,
+    background: false,
+    json: false,
+    color: undefined,
+  });
+  assert.equal(parseArgs(["pause"]).action, "pause");
+  assert.equal(parseArgs(["resume"]).action, "resume");
+  assert.equal(parseArgs(["disconnect"]).action, "remove");
   assert.deepEqual(parseArgs(["background"]), {
     command: "background",
     action: "status",
@@ -153,7 +178,7 @@ test("background install refuses to create a service before Keychain setup", asy
       },
       keychainHasApiKeyFn: () => false,
     }),
-    /Run `cribble auth set` first/,
+    /Run `cribble connect` first/,
   );
   assert.equal(installCalled, false);
 });
@@ -167,10 +192,10 @@ test("background install validates the stored Keychain value before scheduling",
       },
       keychainHasApiKeyFn: () => true,
       readKeychainApiKeyFn: () => {
-        throw new Error("The stored API key is invalid.");
+        throw new Error("The stored Agent key is invalid.");
       },
     }),
-    /stored API key is invalid/,
+    /stored Agent key is invalid/,
   );
   assert.equal(installCalled, false);
 });
@@ -195,14 +220,14 @@ test("auth setup removes a malformed value instead of leaving it in Keychain", a
     main(["auth", "set"], {}, {
       promptAndStoreApiKeyFn: () => {},
       readKeychainApiKeyFn: () => {
-        throw new Error("The stored API key is malformed.");
+        throw new Error("The stored Agent key is malformed.");
       },
       removeKeychainApiKeyFn: () => {
         removed = true;
         return true;
       },
     }),
-    /stored API key is malformed/,
+    /stored Agent key is malformed/,
   );
   assert.equal(removed, true);
 });
@@ -227,7 +252,7 @@ test("status reports credential, service, and last sync without reading usage", 
   });
 
   assert.equal(usageRead, false);
-  assert.match(output[0], /Credential\s+macOS Keychain/);
+  assert.match(output[0], /Agent key\s+macOS Keychain/);
   assert.match(output[0], /Background\s+paused/);
   assert.match(output[0], /1 inserted, 2 replaced, 3 unchanged/);
 });

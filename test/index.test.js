@@ -354,7 +354,7 @@ test("sync dry-run works without a key or network access", async () => {
   const payload = JSON.parse(output[0]);
   assert.equal(payload.clientId, CLIENT_ID);
   assert.equal(payload.timezone, "Asia/Manila");
-  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.0.0" });
+  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.1.0" });
 });
 
 test("parseEndpoint only allows valid HTTP endpoints", () => {

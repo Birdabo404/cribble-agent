@@ -43,6 +43,13 @@ const { safeText } = require("./lib/safety");
 const DEFAULT_DAYS = 7;
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_SYNC_ENDPOINT = "https://cribble.dev/api/agent/usage";
+const FRIENDLY_COMMANDS = Object.freeze({
+  connect: { command: "auth", action: "set" },
+  disconnect: { command: "auth", action: "remove" },
+  start: { command: "background", action: "install" },
+  pause: { command: "background", action: "pause" },
+  resume: { command: "background", action: "resume" },
+});
 
 function buildWirePayload(snapshot, options) {
   return buildPayload(snapshot, { cliVersion: packageVersion, ...options });
@@ -63,14 +70,23 @@ function parseWholeNumber(value, option) {
 function parseArgs(argv) {
   const args = [...argv];
   let command = "show";
+  let action;
 
-  if (args[0] && !args[0].startsWith("-")) command = args.shift();
+  if (args[0] && !args[0].startsWith("-")) {
+    const requestedCommand = args.shift();
+    const friendlyCommand = FRIENDLY_COMMANDS[requestedCommand];
+    if (friendlyCommand) {
+      command = friendlyCommand.command;
+      action = friendlyCommand.action;
+    } else {
+      command = requestedCommand;
+    }
+  }
   if (!["show", "sync", "status", "auth", "background", "help"].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
 
-  let action;
-  if (["auth", "background"].includes(command)) {
+  if (["auth", "background"].includes(command) && !action) {
     action = args[0] && !args[0].startsWith("-") ? args.shift() : "status";
     const allowed =
       command === "auth"
@@ -170,14 +186,21 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  return `Cribble token tracker
+  return `Cribble · Token tracker
 
-Usage:
-  cribble [show] [--days 7] [--json]
+Quick commands:
+  cribble [--days 7] [--json]
+  cribble connect
   cribble sync [--endpoint URL] [--days 7] [--dry-run]
   cribble status
-  cribble auth <set|status|remove>
+  cribble start [--interval 15] [--days 7]
+  cribble pause
+  cribble resume
+
+Advanced management:
+  cribble disconnect
   cribble background <install|status|pause|resume|uninstall> [options]
+  cribble auth <set|status|remove>
 
 Background install options:
   --interval N   Sync every 5, 10, 15, 20, 30, or 60 minutes (default: 15)
@@ -194,11 +217,11 @@ General options:
 
 Environment:
   CRIBBLE_SYNC_URL   Backend endpoint used by manual sync
-  CRIBBLE_API_KEY    Explicit development/CI override for the Keychain key
+  CRIBBLE_API_KEY    Development/CI override for the Agent key
   CCUSAGE_BIN        Optional path to a ccusage executable
 
-Background sync is opt-in and macOS-only. Run \`cribble auth set\` before
-\`cribble background install\`. The API key is never written to the LaunchAgent.`;
+Automatic sync is opt-in and macOS-only. Run \`cribble connect\` before
+\`cribble start\`. The Agent key is never written to the LaunchAgent.`;
 }
 
 function asIso(nowFn) {
@@ -222,7 +245,7 @@ function renderStatus({ state, credential, service }) {
   const lines = [
     "Cribble · Sync status",
     "",
-    `Credential      ${statusValue(credential)}`,
+    `Agent key       ${statusValue(credential)}`,
     `Background      ${statusValue(service)}`,
   ];
 
@@ -278,21 +301,21 @@ async function main(
 
   if (options.command === "auth") {
     if (options.action === "set") {
-      deps.promptAndStoreApiKeyFn();
+      await deps.promptAndStoreApiKeyFn();
       try {
         const stored = deps.readKeychainApiKeyFn();
-        if (!stored) throw new Error("No API key was saved.");
+        if (!stored) throw new Error("No Agent key was saved.");
       } catch (error) {
         try {
           deps.removeKeychainApiKeyFn();
         } catch {
           throw new Error(
-            `${safeText(error?.message, { fallback: "The stored API key is invalid." })} Remove it with \`cribble auth remove\` before trying again.`,
+            `${safeText(error?.message, { fallback: "The stored Agent key is invalid." })} Remove it with \`cribble disconnect\` before trying again.`,
           );
         }
         throw error;
       }
-      deps.log("Cribble API key saved securely in macOS Keychain.");
+      deps.log("Cribble Agent key saved securely in macOS Keychain.");
       return;
     }
     if (options.action === "remove") {
@@ -306,32 +329,32 @@ async function main(
       }
       if (activeBackground) {
         throw new Error(
-          "Pause or uninstall background sync before removing its Keychain API key.",
+          "Pause or uninstall background sync before removing its Agent key.",
         );
       }
       const removed = deps.removeKeychainApiKeyFn();
-      deps.log(removed ? "Cribble API key removed from Keychain." : "No Keychain key was stored.");
+      deps.log(removed ? "Cribble Agent key removed from Keychain." : "No Agent key was stored.");
       return;
     }
     if (!deps.keychainHasApiKeyFn()) {
-      deps.log("No Cribble API key is configured. Run `cribble auth set`.");
+      deps.log("No Cribble Agent key is configured. Run `cribble connect`.");
       return;
     }
     if (!deps.readKeychainApiKeyFn()) {
-      throw new Error("The stored Keychain API key is unreadable. Run `cribble auth set` again.");
+      throw new Error("The stored Agent key is unreadable. Run `cribble connect` again.");
     }
-    deps.log("Cribble API key is configured in macOS Keychain.");
+    deps.log("Cribble Agent key is configured in macOS Keychain.");
     return;
   }
 
   if (options.command === "background") {
     if (options.action === "install") {
       if (!deps.keychainHasApiKeyFn()) {
-        throw new Error("No Keychain API key configured. Run `cribble auth set` first.");
+        throw new Error("No Agent key configured. Run `cribble connect` first.");
       }
       const storedApiKey = deps.readKeychainApiKeyFn();
       if (!storedApiKey) {
-        throw new Error("No valid Keychain API key configured. Run `cribble auth set` first.");
+        throw new Error("No valid Agent key configured. Run `cribble connect` first.");
       }
       if (options.endpoint) parseEndpoint(options.endpoint);
       const installed = deps.installBackgroundFn({
@@ -465,7 +488,7 @@ async function main(
       const apiKey = deps.resolveApiKeyFn(env);
       if (!apiKey) {
         throw new Error(
-          "No API key configured. Run `cribble auth set`, or set CRIBBLE_API_KEY for development.",
+          "No Agent key configured. Run `cribble connect`, or set CRIBBLE_API_KEY for development.",
         );
       }
       const payload = preparePayload();
