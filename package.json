@@ -9,8 +9,8 @@
   "files": [
     "index.js",
     "lib/",
-    "README.md",
-    "docs/PRODUCT_PLAN.md"
+    "assets/usage-report.svg",
+    "README.md"
   ],
   "scripts": {
     "start": "node index.js",

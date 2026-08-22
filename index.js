@@ -23,6 +23,7 @@ const {
   parseEndpoint,
   postSnapshot,
   postSnapshotWithRetry,
+  safeEndpointLabel,
 } = require("./lib/http");
 const { loadUsage } = require("./lib/source");
 const {
@@ -37,6 +38,7 @@ const {
   localTimezone,
   renderSnapshot,
 } = require("./lib/usage");
+const { safeText } = require("./lib/safety");
 
 const DEFAULT_DAYS = 7;
 const DEFAULT_INTERVAL_MINUTES = 15;
@@ -129,8 +131,8 @@ function parseArgs(argv) {
     } else if (arg.startsWith("--endpoint=")) {
       seen.add("endpoint");
       options.endpoint = arg.slice(11);
-    }
-    else throw new Error(`Unknown option: ${arg}`);
+      if (!options.endpoint) throw new Error("--endpoint needs a value.");
+    } else throw new Error(`Unknown option: ${arg}`);
   }
 
   if (options.days < 1 || options.days > 365) {
@@ -203,19 +205,25 @@ function asIso(nowFn) {
   return nowFn().toISOString();
 }
 
-function syncCounts(body) {
+function syncCounts(body, { clientId, dayCount } = {}) {
   if (!body || typeof body !== "object") return null;
   const values = [body.inserted, body.replaced, body.stale];
   if (!values.every((value) => Number.isInteger(value) && value >= 0)) return null;
+  if (clientId !== undefined && body.clientId !== clientId) return null;
+  if (dayCount !== undefined && values.reduce((sum, value) => sum + value, 0) !== dayCount) {
+    return null;
+  }
   return { inserted: body.inserted, replaced: body.replaced, stale: body.stale };
 }
 
 function renderStatus({ state, credential, service }) {
+  const statusValue = (value, fallback = "—") =>
+    safeText(value, { fallback, maxLength: 300 });
   const lines = [
     "Cribble · Sync status",
     "",
-    `Credential      ${credential}`,
-    `Background      ${service}`,
+    `Credential      ${statusValue(credential)}`,
+    `Background      ${statusValue(service)}`,
   ];
 
   if (!state) {
@@ -223,14 +231,14 @@ function renderStatus({ state, credential, service }) {
     return lines.join("\n");
   }
 
-  lines.push(`Last attempt    ${state.lastAttemptAt ?? "—"}`);
-  lines.push(`Last success    ${state.lastSuccessAt ?? "never"}`);
+  lines.push(`Last attempt    ${statusValue(state.lastAttemptAt)}`);
+  lines.push(`Last success    ${statusValue(state.lastSuccessAt, "never")}`);
   if (state.lastResult) {
     lines.push(
-      `Last result     ${state.lastResult.inserted} inserted, ${state.lastResult.replaced} replaced, ${state.lastResult.stale} unchanged`,
+      `Last result     ${statusValue(state.lastResult.inserted, "0")} inserted, ${statusValue(state.lastResult.replaced, "0")} replaced, ${statusValue(state.lastResult.stale, "0")} unchanged`,
     );
   }
-  if (state.lastError) lines.push(`Last error      ${state.lastError}`);
+  if (state.lastError) lines.push(`Last error      ${statusValue(state.lastError)}`);
   return lines.join("\n");
 }
 
@@ -271,7 +279,19 @@ async function main(
   if (options.command === "auth") {
     if (options.action === "set") {
       deps.promptAndStoreApiKeyFn();
-      deps.readKeychainApiKeyFn();
+      try {
+        const stored = deps.readKeychainApiKeyFn();
+        if (!stored) throw new Error("No API key was saved.");
+      } catch (error) {
+        try {
+          deps.removeKeychainApiKeyFn();
+        } catch {
+          throw new Error(
+            `${safeText(error?.message, { fallback: "The stored API key is invalid." })} Remove it with \`cribble auth remove\` before trying again.`,
+          );
+        }
+        throw error;
+      }
       deps.log("Cribble API key saved securely in macOS Keychain.");
       return;
     }
@@ -293,11 +313,14 @@ async function main(
       deps.log(removed ? "Cribble API key removed from Keychain." : "No Keychain key was stored.");
       return;
     }
-    deps.log(
-      deps.keychainHasApiKeyFn()
-        ? "Cribble API key is configured in macOS Keychain."
-        : "No Cribble API key is configured. Run `cribble auth set`.",
-    );
+    if (!deps.keychainHasApiKeyFn()) {
+      deps.log("No Cribble API key is configured. Run `cribble auth set`.");
+      return;
+    }
+    if (!deps.readKeychainApiKeyFn()) {
+      throw new Error("The stored Keychain API key is unreadable. Run `cribble auth set` again.");
+    }
+    deps.log("Cribble API key is configured in macOS Keychain.");
     return;
   }
 
@@ -305,6 +328,10 @@ async function main(
     if (options.action === "install") {
       if (!deps.keychainHasApiKeyFn()) {
         throw new Error("No Keychain API key configured. Run `cribble auth set` first.");
+      }
+      const storedApiKey = deps.readKeychainApiKeyFn();
+      if (!storedApiKey) {
+        throw new Error("No valid Keychain API key configured. Run `cribble auth set` first.");
       }
       if (options.endpoint) parseEndpoint(options.endpoint);
       const installed = deps.installBackgroundFn({
@@ -345,13 +372,31 @@ async function main(
   }
 
   if (options.command === "status") {
-    const state = deps.readSyncStateFn();
-    let credential = env.CRIBBLE_API_KEY ? "environment override" : "not configured";
-    if (!env.CRIBBLE_API_KEY) {
+    let state;
+    try {
+      state = deps.readSyncStateFn();
+    } catch (error) {
+      state = {
+        lastError: `${safeText(error?.message, { fallback: "The local sync status is unreadable." })} The next sync attempt will repair it.`,
+      };
+    }
+    let credential = "not configured";
+    if (env.CRIBBLE_API_KEY) {
       try {
-        if (deps.keychainHasApiKeyFn()) credential = "macOS Keychain";
+        deps.resolveApiKeyFn(env);
+        credential = "environment override";
       } catch {
-        credential = "not available on this platform";
+        credential = "invalid environment override";
+      }
+    } else {
+      try {
+        if (deps.keychainHasApiKeyFn()) {
+          credential = deps.readKeychainApiKeyFn()
+            ? "macOS Keychain"
+            : "invalid macOS Keychain key";
+        }
+      } catch {
+        credential = "unreadable macOS Keychain key";
       }
     }
     let service = "not installed";
@@ -405,18 +450,18 @@ async function main(
   }
 
   const endpoint = options.endpoint ?? env.CRIBBLE_SYNC_URL ?? DEFAULT_SYNC_ENDPOINT;
+  const endpointLabel = safeEndpointLabel(parseEndpoint(endpoint));
 
   const performSync = async () => {
     const lastAttemptAt = asIso(deps.nowFn);
     deps.mergeSyncStateFn({
       status: "running",
       lastAttemptAt,
-      endpoint,
+      endpoint: endpointLabel,
       lastError: null,
     });
 
     try {
-      parseEndpoint(endpoint);
       const apiKey = deps.resolveApiKeyFn(env);
       if (!apiKey) {
         throw new Error(
@@ -429,7 +474,11 @@ async function main(
       }
       const result = await deps.postSnapshotWithRetryFn(payload, { endpoint, apiKey });
       const lastSuccessAt = asIso(deps.nowFn);
-      const lastResult = syncCounts(result.body);
+      const lastResult = syncCounts(result.body, {
+        clientId: payload.clientId,
+        dayCount: payload.daily.length,
+      });
+      if (!lastResult) throw new Error("Cribble returned an invalid sync receipt.");
       deps.mergeSyncStateFn({
         status: "success",
         lastSuccessAt,
@@ -451,7 +500,7 @@ async function main(
         status: "error",
         lastFailureAt: asIso(deps.nowFn),
         httpStatus: error instanceof SyncRequestError ? error.status ?? null : null,
-        lastError: error.message,
+        lastError: safeText(error?.message, { fallback: "Unknown sync failure" }),
       });
       throw error;
     }
@@ -467,7 +516,7 @@ async function main(
 
 if (require.main === module) {
   main().catch((error) => {
-    console.error(`Cribble error: ${error.message}`);
+    console.error(`Cribble error: ${safeText(error?.message, { fallback: "Unknown failure" })}`);
     process.exitCode = 1;
   });
 }

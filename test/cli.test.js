@@ -44,6 +44,7 @@ test("parseArgs models the explicit background lifecycle", () => {
     () => parseArgs(["background", "status", "--endpoint", "https://example.test"]),
     /--endpoint can only be used/,
   );
+  assert.throws(() => parseArgs(["sync", "--endpoint="]), /needs a value/);
 });
 
 test("successful sync records durable attempt and result state", async () => {
@@ -64,7 +65,13 @@ test("successful sync records durable attempt and result state", async () => {
     postSnapshotWithRetryFn: async () => ({
       status: 200,
       endpoint: "https://cribble.dev/api/agent/usage",
-      body: { success: true, inserted: 1, replaced: 0, stale: 0 },
+      body: {
+        success: true,
+        inserted: 1,
+        replaced: 0,
+        stale: 0,
+        clientId: CLIENT_ID,
+      },
     }),
     resolveApiKeyFn: () => API_KEY,
     timezoneFn: () => "Asia/Manila",
@@ -151,6 +158,23 @@ test("background install refuses to create a service before Keychain setup", asy
   assert.equal(installCalled, false);
 });
 
+test("background install validates the stored Keychain value before scheduling", async () => {
+  let installCalled = false;
+  await assert.rejects(
+    main(["background", "install"], {}, {
+      installBackgroundFn: () => {
+        installCalled = true;
+      },
+      keychainHasApiKeyFn: () => true,
+      readKeychainApiKeyFn: () => {
+        throw new Error("The stored API key is invalid.");
+      },
+    }),
+    /stored API key is invalid/,
+  );
+  assert.equal(installCalled, false);
+});
+
 test("auth removal refuses to break an active background schedule", async () => {
   let removeCalled = false;
   await assert.rejects(
@@ -165,12 +189,31 @@ test("auth removal refuses to break an active background schedule", async () => 
   assert.equal(removeCalled, false);
 });
 
+test("auth setup removes a malformed value instead of leaving it in Keychain", async () => {
+  let removed = false;
+  await assert.rejects(
+    main(["auth", "set"], {}, {
+      promptAndStoreApiKeyFn: () => {},
+      readKeychainApiKeyFn: () => {
+        throw new Error("The stored API key is malformed.");
+      },
+      removeKeychainApiKeyFn: () => {
+        removed = true;
+        return true;
+      },
+    }),
+    /stored API key is malformed/,
+  );
+  assert.equal(removed, true);
+});
+
 test("status reports credential, service, and last sync without reading usage", async () => {
   const output = [];
   let usageRead = false;
   await main(["status"], {}, {
     backgroundStatusFn: () => ({ installed: true, loaded: false, disabled: true }),
     keychainHasApiKeyFn: () => true,
+    readKeychainApiKeyFn: () => API_KEY,
     loadUsageFn: () => {
       usageRead = true;
     },
@@ -187,4 +230,22 @@ test("status reports credential, service, and last sync without reading usage", 
   assert.match(output[0], /Credential\s+macOS Keychain/);
   assert.match(output[0], /Background\s+paused/);
   assert.match(output[0], /1 inserted, 2 replaced, 3 unchanged/);
+});
+
+test("status explains invalid credentials and recovers from damaged local state", async () => {
+  const output = [];
+  await main(["status"], { CRIBBLE_API_KEY: "not-a-key" }, {
+    backgroundStatusFn: () => ({ installed: false, loaded: false, disabled: false }),
+    log: (value) => output.push(value),
+    readSyncStateFn: () => {
+      throw new Error("status JSON is damaged\u001b[31m");
+    },
+    resolveApiKeyFn: () => {
+      throw new Error("invalid key");
+    },
+  });
+
+  assert.match(output[0], /invalid environment override/);
+  assert.match(output[0], /next sync attempt will repair it/);
+  assert.doesNotMatch(output[0], /\u001b/);
 });

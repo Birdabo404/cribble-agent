@@ -18,6 +18,7 @@ const {
   installBackground,
   launchAgentPath,
   launchAgentPlist,
+  pauseBackground,
 } = require("../lib/background");
 
 test("launchAgentPlist schedules an opt-in low-priority sync without secrets", () => {
@@ -159,4 +160,34 @@ test("installBackground restores a previous schedule after a failed update", () 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("pauseBackground rolls back its disabled flag when stopping fails", () => {
+  const commands = [];
+  const spawnSyncFn = (command, args) => {
+    commands.push([command, ...args]);
+    if (args[0] === "bootout") {
+      return { status: 5, stdout: "", stderr: "permission denied\u001b[31m" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  assert.throws(
+    () => pauseBackground({ platform: "darwin", uid: 501, spawnSyncFn }),
+    /Stopping background sync failed: permission denied/,
+  );
+  assert.deepEqual(commands.map((command) => command[1]), ["disable", "bootout", "enable"]);
+});
+
+test("pauseBackground accepts an already stopped service", () => {
+  assert.doesNotThrow(() =>
+    pauseBackground({
+      platform: "darwin",
+      uid: 501,
+      spawnSyncFn: (_command, args) =>
+        args[0] === "bootout"
+          ? { status: 3, stdout: "", stderr: "Boot-out failed: No such process" }
+          : { status: 0, stdout: "", stderr: "" },
+    }),
+  );
 });

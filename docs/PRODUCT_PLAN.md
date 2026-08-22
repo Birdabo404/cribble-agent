@@ -60,6 +60,7 @@ locally. Token data is still not rendered on a dashboard.
 - [x] Review and commit each repository separately.
 - [x] Apply migration 041 through the controlled production database process.
 - [x] Deploy Cribble routes and Settings UI before enabling any scheduled client.
+- [x] Complete the CLI production-hardening and packaged-install gate.
 - [ ] Create the pilot's one-time key through signed-in Account Settings and
   save it to macOS Keychain.
 - Verify one manual sync end to end, then enable background sync for one pilot

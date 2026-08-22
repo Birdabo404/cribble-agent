@@ -2,12 +2,19 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
 const {
   SyncAlreadyRunningError,
+  mergeSyncState,
   readSyncState,
   withSyncLock,
   writeSyncState,
@@ -26,6 +33,8 @@ test("sync state is written atomically without secrets", () => {
         status: "success",
         lastSuccessAt: "2026-08-22T00:00:00.000Z",
         lastResult: { inserted: 1, replaced: 0, stale: 0 },
+        lastError: `server echoed crib_ag_${"a".repeat(64)}\u001b[31m`,
+        ignoredApiKey: `crib_ag_${"b".repeat(64)}`,
       },
       filePath,
     );
@@ -34,6 +43,20 @@ test("sync state is written atomically without secrets", () => {
     assert.equal(state.schemaVersion, 1);
     assert.equal(state.status, "success");
     assert.doesNotMatch(readFileSync(filePath, "utf8"), /crib_ag_/);
+    assert.doesNotMatch(state.lastError, /\u001b/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a corrupt status file cannot brick the next sync state update", () => {
+  const root = temporaryRoot();
+  const filePath = join(root, "sync-state.json");
+  try {
+    writeFileSync(filePath, "not json");
+    mergeSyncState({ status: "running", lastError: null }, filePath);
+
+    assert.equal(readSyncState(filePath).status, "running");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -82,6 +105,30 @@ test("withSyncLock recovers an old orphaned lock", async () => {
 
     assert.equal(result, "recovered");
     assert.equal(existsSync(filePath), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("withSyncLock expires an old lock even if its PID was reused", async () => {
+  const root = temporaryRoot();
+  const filePath = join(root, "sync.lock");
+  try {
+    writeFileSync(
+      filePath,
+      JSON.stringify({
+        lockId: "reused-pid",
+        pid: process.pid,
+        startedAt: "2026-08-21T00:00:00.000Z",
+      }),
+    );
+    const result = await withSyncLock(async () => "recovered", {
+      filePath,
+      now: () => new Date("2026-08-22T00:00:00.000Z"),
+      processIsRunningFn: () => true,
+    });
+
+    assert.equal(result, "recovered");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

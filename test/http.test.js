@@ -8,7 +8,13 @@ const {
   postSnapshotWithRetry,
 } = require("../lib/http");
 
-const PAYLOAD = { schemaVersion: 1, daily: [{ date: "2026-08-22" }] };
+const CLIENT_ID = "123e4567-e89b-42d3-a456-426614174000";
+const API_KEY = `crib_ag_${"d".repeat(64)}`;
+const PAYLOAD = {
+  schemaVersion: 1,
+  clientId: CLIENT_ID,
+  daily: [{ date: "2026-08-22" }],
+};
 
 test("postSnapshotWithRetry retries transient server failures with one payload", async () => {
   const requests = [];
@@ -19,7 +25,7 @@ test("postSnapshotWithRetry retries transient server failures with one payload",
     PAYLOAD,
     {
       endpoint: "https://cribble.test/api/agent/usage",
-      apiKey: "secret",
+      apiKey: API_KEY,
       fetchFn: async (_url, options) => {
         requests.push(JSON.parse(options.body));
         attempt += 1;
@@ -35,7 +41,8 @@ test("postSnapshotWithRetry retries transient server failures with one payload",
           ok: true,
           status: 200,
           headers: { get: () => null },
-          text: async () => '{"success":true,"inserted":1,"replaced":0,"stale":0}',
+          text: async () =>
+            `{"success":true,"inserted":1,"replaced":0,"stale":0,"clientId":"${CLIENT_ID}"}`,
         };
       },
     },
@@ -53,6 +60,7 @@ test("postSnapshotWithRetry retries transient server failures with one payload",
     inserted: 1,
     replaced: 0,
     stale: 0,
+    clientId: CLIENT_ID,
   });
 });
 
@@ -64,7 +72,7 @@ test("postSnapshotWithRetry does not retry credentials or payload failures", asy
       PAYLOAD,
       {
         endpoint: "https://cribble.test/api/agent/usage",
-        apiKey: "bad",
+        apiKey: API_KEY,
         fetchFn: async () => {
           calls += 1;
           return {
@@ -92,7 +100,7 @@ test("postSnapshotWithRetry respects a bounded Retry-After response", async () =
     PAYLOAD,
     {
       endpoint: "https://cribble.test/api/agent/usage",
-      apiKey: "secret",
+      apiKey: API_KEY,
       fetchFn: async () => {
         calls += 1;
         if (calls === 1) {
@@ -107,7 +115,8 @@ test("postSnapshotWithRetry respects a bounded Retry-After response", async () =
           ok: true,
           status: 200,
           headers: { get: () => null },
-          text: async () => '{"success":true}',
+          text: async () =>
+            `{"success":true,"inserted":0,"replaced":0,"stale":1,"clientId":"${CLIENT_ID}"}`,
         };
       },
     },
@@ -124,7 +133,7 @@ test("postSnapshotWithRetry does not mistake a 2xx proxy page for ingestion", as
       PAYLOAD,
       {
         endpoint: "https://cribble.test/api/agent/usage",
-        apiKey: "secret",
+        apiKey: API_KEY,
         fetchFn: async () => {
           calls += 1;
           return {
@@ -140,4 +149,45 @@ test("postSnapshotWithRetry does not mistake a 2xx proxy page for ingestion", as
     /invalid success response/,
   );
   assert.equal(calls, 2);
+});
+
+test("postSnapshotWithRetry rejects a receipt for the wrong machine", async () => {
+  await assert.rejects(
+    postSnapshotWithRetry(
+      PAYLOAD,
+      {
+        endpoint: "https://cribble.test/api/agent/usage",
+        apiKey: API_KEY,
+        fetchFn: async () => ({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () =>
+            '{"success":true,"inserted":1,"replaced":0,"stale":0,"clientId":"223e4567-e89b-42d3-a456-426614174000"}',
+        }),
+      },
+      { attempts: 1 },
+    ),
+    /invalid success response/,
+  );
+});
+
+test("postSnapshotWithRetry bounds response bodies", async () => {
+  await assert.rejects(
+    postSnapshotWithRetry(
+      PAYLOAD,
+      {
+        endpoint: "https://cribble.test/api/agent/usage",
+        apiKey: API_KEY,
+        fetchFn: async () => ({
+          ok: true,
+          status: 200,
+          headers: { get: (name) => (name === "content-length" ? "70000" : null) },
+          text: async () => assert.fail("oversized response should not be read"),
+        }),
+      },
+      { attempts: 1 },
+    ),
+    /unexpectedly large response/,
+  );
 });

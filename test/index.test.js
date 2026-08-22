@@ -152,6 +152,7 @@ test("buildWirePayload drops rows whose date cannot be ingested", () => {
     {
       daily: [
         { date: "unknown", inputTokens: 999 },
+        { date: "0000-01-01", inputTokens: 999 },
         { date: "2026-02-30", inputTokens: 999 },
         { date: "2026-08-22", inputTokens: 1 },
       ],
@@ -165,6 +166,63 @@ test("buildWirePayload drops rows whose date cannot be ingested", () => {
   });
 
   assert.deepEqual(payload.daily.map((row) => row.date), ["2026-08-22"]);
+});
+
+test("duplicate source dates are merged before display and ingestion", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          date: "2026-08-22",
+          agent: "codex",
+          modelsUsed: ["gpt-5"],
+          inputTokens: 10,
+          outputTokens: 2,
+          totalCost: 0.1,
+        },
+        {
+          date: "2026-08-22",
+          agent: "claude",
+          modelsUsed: ["sonnet"],
+          inputTokens: 20,
+          cacheReadTokens: 3,
+          totalCost: 0.2,
+        },
+      ],
+    },
+    { now: NOW },
+  );
+  const payload = buildWirePayload(snapshot, {
+    clientId: CLIENT_ID,
+    timezone: "Asia/Manila",
+  });
+
+  assert.equal(snapshot.daily.length, 1);
+  assert.equal(snapshot.daily[0].totalTokens, 35);
+  assert.equal(snapshot.daily[0].costUsd, 0.3);
+  assert.deepEqual(snapshot.daily[0].agents, ["codex", "claude"]);
+  assert.equal(payload.daily.length, 1);
+  assert.equal(payload.daily[0].totalTokens, 35);
+});
+
+test("source labels cannot inject terminal control or bidi characters", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          date: "2026-08-22",
+          agent: "codex\u001b[31m\u202e",
+          modelsUsed: ["gpt\u0000-5"],
+          inputTokens: 1,
+        },
+      ],
+    },
+    { now: NOW },
+  );
+  const rendered = renderSnapshot(snapshot, { color: false });
+
+  assert.doesNotMatch(rendered, /[\u0000\u001b\u202e]/);
+  assert.doesNotMatch(snapshot.agents[0], /[\u001b\u202e]/);
 });
 
 test("sync applies its day window after dropping invalid source dates", async () => {
@@ -301,36 +359,54 @@ test("sync dry-run works without a key or network access", async () => {
 
 test("parseEndpoint only allows valid HTTP endpoints", () => {
   assert.equal(parseEndpoint("https://cribble.test/api/usage").hostname, "cribble.test");
+  assert.equal(parseEndpoint("http://127.0.0.1:3000/api/usage").port, "3000");
+  assert.throws(() => parseEndpoint("http://cribble.test/api/usage"), /must use HTTPS/);
+  assert.throws(
+    () => parseEndpoint("https://user:password@cribble.test/api/usage"),
+    /must not contain/,
+  );
+  assert.throws(
+    () => parseEndpoint("https://cribble.test/api/usage?token=value"),
+    /query parameters/,
+  );
   assert.throws(() => parseEndpoint("file:///tmp/usage.json"), /http or https/);
   assert.throws(() => parseEndpoint(), /No sync endpoint/);
 });
 
 test("postSnapshot sends JSON and optional bearer authentication", async () => {
   let request;
-  const snapshot = buildSnapshot({ daily: [] }, { now: NOW });
+  const snapshot = { schemaVersion: 1, clientId: CLIENT_ID, daily: [] };
   const fetchFn = async (url, options) => {
     request = { url, options };
     return {
       ok: true,
       status: 201,
-      text: async () => '{"success":true}',
+      text: async () =>
+        `{"success":true,"inserted":0,"replaced":0,"stale":0,"clientId":"${CLIENT_ID}"}`,
     };
   };
 
   const result = await postSnapshot(snapshot, {
-    endpoint: "https://cribble.test/api/usage?private=value",
-    apiKey: "secret",
+    endpoint: "https://cribble.test/api/usage",
+    apiKey: API_KEY,
     fetchFn,
   });
 
-  assert.equal(request.url.href, "https://cribble.test/api/usage?private=value");
+  assert.equal(request.url.href, "https://cribble.test/api/usage");
   assert.equal(request.options.method, "POST");
-  assert.equal(request.options.headers.Authorization, "Bearer secret");
+  assert.equal(request.options.headers.Authorization, `Bearer ${API_KEY}`);
+  assert.equal(request.options.redirect, "error");
   assert.deepEqual(JSON.parse(request.options.body), snapshot);
   assert.deepEqual(result, {
     status: 201,
     endpoint: "https://cribble.test/api/usage",
-    body: { success: true },
+    body: {
+      success: true,
+      inserted: 0,
+      replaced: 0,
+      stale: 0,
+      clientId: CLIENT_ID,
+    },
   });
 });
 
@@ -340,6 +416,7 @@ test("postSnapshot reports useful HTTP failures", async () => {
       {},
       {
         endpoint: "https://cribble.test/api/usage",
+        apiKey: API_KEY,
         fetchFn: async () => ({
           ok: false,
           status: 422,
@@ -349,6 +426,32 @@ test("postSnapshot reports useful HTTP failures", async () => {
     ),
     /HTTP 422: invalid payload/,
   );
+});
+
+test("postSnapshot redacts secrets and controls from server errors", async () => {
+  let received;
+  try {
+    await postSnapshot(
+      { schemaVersion: 1, clientId: CLIENT_ID, daily: [] },
+      {
+        endpoint: "https://cribble.test/api/usage",
+        apiKey: API_KEY,
+        fetchFn: async () => ({
+          ok: false,
+          status: 422,
+          headers: { get: () => null },
+          text: async () =>
+            JSON.stringify({ error: `bad\u001b[31m token ${API_KEY}` }),
+        }),
+      },
+    );
+  } catch (error) {
+    received = error;
+  }
+
+  assert.match(received.message, /\[REDACTED\]/);
+  assert.doesNotMatch(received.message, new RegExp(API_KEY));
+  assert.doesNotMatch(received.message, /\u001b/);
 });
 
 test("sync uses the Cribble endpoint by default and sends bearer auth", async () => {
@@ -369,7 +472,7 @@ test("sync uses the Cribble endpoint by default and sends bearer auth", async ()
             ok: true,
             status: 200,
             text: async () =>
-              '{"success":true,"inserted":1,"replaced":0,"stale":0}',
+              `{"success":true,"inserted":1,"replaced":0,"stale":0,"clientId":"${CLIENT_ID}"}`,
           };
         },
       }),
