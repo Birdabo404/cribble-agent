@@ -1,0 +1,45 @@
+{
+  "name": "cribble-agent",
+  "version": "1.0.0",
+  "description": "A CLI and opt-in macOS background client for Cribble agent token usage.",
+  "main": "index.js",
+  "bin": {
+    "cribble": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "README.md",
+    "docs/PRODUCT_PLAN.md"
+  ],
+  "scripts": {
+    "start": "node index.js",
+    "show": "node index.js show",
+    "sync": "node index.js sync",
+    "status": "node index.js status",
+    "background:status": "node index.js background status",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Birdabo404/cribble-agent.git"
+  },
+  "keywords": [
+    "tokens",
+    "usage",
+    "ccusage"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "bugs": {
+    "url": "https://github.com/Birdabo404/cribble-agent/issues"
+  },
+  "homepage": "https://github.com/Birdabo404/cribble-agent#readme",
+  "dependencies": {
+    "ccusage": "20.0.20"
+  }
+}
