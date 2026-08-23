@@ -39,6 +39,16 @@ const {
   renderSnapshot,
 } = require("./lib/usage");
 const { safeText } = require("./lib/safety");
+const {
+  ANSI,
+  animationEnabled,
+  colorEnabled,
+  createActivity,
+  paint,
+  renderCliError,
+  renderNotice,
+  renderSyncReceipt,
+} = require("./lib/terminal");
 
 const DEFAULT_DAYS = 7;
 const DEFAULT_INTERVAL_MINUTES = 15;
@@ -164,9 +174,6 @@ function parseArgs(argv) {
   if (options.json && command !== "show") {
     throw new Error("--json can only be used with show.");
   }
-  if (options.color !== undefined && command !== "show") {
-    throw new Error("--no-color can only be used with show.");
-  }
   if (seen.has("days") && !["show", "sync"].includes(command)) {
     if (command !== "background" || action !== "install") {
       throw new Error("--days can only be used with show, sync, or background install.");
@@ -246,14 +253,27 @@ function syncCounts(body, { clientId, dayCount } = {}) {
   return { inserted: body.inserted, replaced: body.replaced, stale: body.stale };
 }
 
-function renderStatus({ state, credential, service }) {
+function renderStatus({ state, credential, service, color = false }) {
   const statusValue = (value, fallback = "—") =>
     safeText(value, { fallback, maxLength: 300 });
+  const credentialValue = statusValue(credential);
+  const credentialColor =
+    credentialValue.includes("invalid") ||
+    credentialValue.includes("unreadable") ||
+    credentialValue === "not configured"
+      ? ANSI.warning
+      : ANSI.success;
+  const serviceValue = statusValue(service);
+  const serviceColor = serviceValue === "running on schedule"
+    ? ANSI.success
+    : serviceValue === "paused"
+      ? ANSI.warning
+      : ANSI.dim;
   const lines = [
-    "Cribble · Sync status",
+    paint(ANSI.brand, "Cribble · Sync status", color),
     "",
-    `Agent key       ${statusValue(credential)}`,
-    `Background      ${statusValue(service)}`,
+    `Agent key       ${paint(credentialColor, credentialValue, color)}`,
+    `Background      ${paint(serviceColor, serviceValue, color)}`,
   ];
 
   if (!state) {
@@ -266,7 +286,9 @@ function renderStatus({ state, credential, service }) {
         `Last result     ${statusValue(state.lastResult.inserted, "0")} inserted, ${statusValue(state.lastResult.replaced, "0")} replaced, ${statusValue(state.lastResult.stale, "0")} unchanged`,
       );
     }
-    if (state.lastError) lines.push(`Last error      ${statusValue(state.lastError)}`);
+    if (state.lastError) {
+      lines.push(`Last error      ${paint(ANSI.error, statusValue(state.lastError), color)}`);
+    }
   }
 
   const credentialNeedsHelp =
@@ -280,7 +302,7 @@ function renderStatus({ state, credential, service }) {
         : service === "not installed"
           ? "run `cribble start` for automatic syncing"
           : "none — automatic syncing is active";
-  lines.push(`Next step       ${nextStep}`);
+  lines.push(`Next step       ${paint(ANSI.brand, nextStep, color)}`);
   return lines.join("\n");
 }
 
@@ -312,10 +334,13 @@ async function main(
     timezoneFn: localTimezone,
     uninstallBackgroundFn: uninstallBackground,
     withSyncLockFn: withSyncLock,
+    createActivityFn: createActivity,
     log: console.log,
+    output: process.stdout,
     ...dependencies,
   };
   const options = parseArgs(argv);
+  const outputColor = colorEnabled({ color: options.color, stream: deps.output, env });
 
   if (options.command === "help") {
     deps.log(usage());
@@ -344,7 +369,7 @@ async function main(
         throw error;
       }
       deps.log(
-        "Cribble Agent key saved securely in macOS Keychain.\nNext: run `cribble sync` to verify it and send your first snapshot.",
+        `${renderNotice("Cribble Agent key saved securely in macOS Keychain.", { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
       );
       return;
     }
@@ -363,7 +388,11 @@ async function main(
         );
       }
       const removed = deps.removeKeychainApiKeyFn();
-      deps.log(removed ? "Cribble Agent key removed from Keychain." : "No Agent key was stored.");
+      deps.log(
+        removed
+          ? renderNotice("Cribble Agent key removed from Keychain.", { color: outputColor })
+          : renderNotice("No Agent key was stored.", { color: outputColor, kind: "warning" }),
+      );
       return;
     }
     if (!deps.keychainHasApiKeyFn()) {
@@ -396,24 +425,29 @@ async function main(
         days: options.days,
         endpoint: options.endpoint,
       });
-      deps.log(
-        `Background sync is on: every ${installed.intervalMinutes} minutes, latest ${installed.days} day${installed.days === 1 ? "" : "s"}.\nAn initial sync was queued. Run \`cribble status\` in a moment to confirm it.`,
-      );
+      deps.log(`${renderNotice(
+        `Background sync is on: every ${installed.intervalMinutes} minutes, latest ${installed.days} day${installed.days === 1 ? "" : "s"}.`,
+        { color: outputColor },
+      )}\nAn initial sync was queued. Run \`cribble status\` in a moment to confirm it.`);
       return;
     }
     if (options.action === "pause") {
       deps.pauseBackgroundFn();
-      deps.log("Background sync paused.");
+      deps.log(renderNotice("Background sync paused.", { color: outputColor, kind: "warning" }));
       return;
     }
     if (options.action === "resume") {
       deps.resumeBackgroundFn();
-      deps.log("Background sync resumed and queued to run now.");
+      deps.log(renderNotice("Background sync resumed and queued to run now.", { color: outputColor }));
       return;
     }
     if (options.action === "uninstall") {
       const result = deps.uninstallBackgroundFn();
-      deps.log(result.removed ? "Background sync uninstalled." : "Background sync was not installed.");
+      deps.log(
+        result.removed
+          ? renderNotice("Background sync uninstalled.", { color: outputColor })
+          : renderNotice("Background sync was not installed.", { color: outputColor, kind: "warning" }),
+      );
       return;
     }
     const service = deps.backgroundStatusFn();
@@ -469,7 +503,7 @@ async function main(
     } catch {
       service = "not available on this platform";
     }
-    deps.log(renderStatus({ state, credential, service }));
+    deps.log(renderStatus({ state, credential, service, color: outputColor }));
     return;
   }
 
@@ -481,7 +515,7 @@ async function main(
     deps.log(
       options.json
         ? JSON.stringify(snapshot, null, 2)
-        : renderSnapshot(snapshot, { color: options.color }),
+        : renderSnapshot(snapshot, { color: outputColor }),
     );
     return;
   }
@@ -516,6 +550,15 @@ async function main(
   const endpointLabel = safeEndpointLabel(parsedEndpoint);
 
   const performSync = async () => {
+    const activity = deps.createActivityFn({
+      output: deps.output,
+      enabled: animationEnabled({
+        stream: deps.output,
+        env,
+        background: options.background,
+      }),
+      color: outputColor,
+    });
     const lastAttemptAt = asIso(deps.nowFn);
     deps.mergeSyncStateFn({
       status: "running",
@@ -531,10 +574,12 @@ async function main(
           "No Agent key configured. Run `cribble connect`, or set CRIBBLE_API_KEY for development.",
         );
       }
+      activity.start("Collecting local token usage");
       const payload = preparePayload();
       if (!payload.daily.length) {
         throw new Error("No valid daily token usage was found to sync.");
       }
+      activity.update("Sending usage to Cribble");
       const result = await deps.postSnapshotWithRetryFn(payload, { endpoint, apiKey });
       const lastSuccessAt = asIso(deps.nowFn);
       const lastResult = syncCounts(result.body, {
@@ -552,13 +597,16 @@ async function main(
         lastResult,
         lastError: null,
       });
+      activity.stop();
       if (!options.background) {
-        deps.log(
-          `Synced ${payload.daily.length} usage day${payload.daily.length === 1 ? "" : "s"} to ${result.endpoint} (HTTP ${result.status}).`,
-        );
+        deps.log(renderSyncReceipt(
+          { payload, result, counts: lastResult },
+          { color: outputColor },
+        ));
       }
       return result;
     } catch (error) {
+      activity.stop();
       deps.mergeSyncStateFn({
         status: "error",
         lastFailureAt: asIso(deps.nowFn),
@@ -579,7 +627,12 @@ async function main(
 
 if (require.main === module) {
   main().catch((error) => {
-    console.error(`Cribble error: ${safeText(error?.message, { fallback: "Unknown failure" })}`);
+    const color = colorEnabled({
+      color: process.argv.includes("--no-color") ? false : undefined,
+      stream: process.stderr,
+      env: process.env,
+    });
+    console.error(renderCliError(error?.message, { color }));
     process.exitCode = 1;
   });
 }
@@ -595,6 +648,8 @@ module.exports = {
   parseEndpoint,
   postSnapshot,
   postSnapshotWithRetry,
+  renderCliError,
+  renderSyncReceipt,
   renderSnapshot,
   renderStatus,
   usage,

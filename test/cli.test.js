@@ -71,6 +71,7 @@ test("parseArgs models the explicit background lifecycle", () => {
   );
   assert.throws(() => parseArgs(["sync", "--endpoint="]), /needs a value/);
   assert.equal(parseArgs(["--version"]).command, "version");
+  assert.equal(parseArgs(["sync", "--no-color"]).color, false);
 });
 
 test("custom endpoints never receive the Agent key from Keychain", async () => {
@@ -139,6 +140,76 @@ test("successful sync records durable attempt and result state", async () => {
   assert.deepEqual(states[1].lastResult, { inserted: 1, replaced: 0, stale: 0 });
   assert.equal(states[1].status, "success");
   assert.match(output[0], /Synced 1 usage day/);
+});
+
+test("foreground sync runs the interactive progress lifecycle", async () => {
+  const events = [];
+  await main(["sync", "--no-color"], {}, {
+    createActivityFn: ({ enabled, color }) => {
+      events.push(["created", enabled, color]);
+      return {
+        start: (label) => events.push(["start", label]),
+        update: (label) => events.push(["update", label]),
+        stop: () => events.push(["stop"]),
+      };
+    },
+    getClientIdFn: () => CLIENT_ID,
+    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+    log: () => {},
+    mergeSyncStateFn: () => {},
+    output: { isTTY: true, write() {} },
+    postSnapshotWithRetryFn: async () => ({
+      status: 200,
+      endpoint: "https://cribble.dev/api/agent/usage",
+      body: {
+        success: true,
+        inserted: 1,
+        replaced: 0,
+        stale: 0,
+        clientId: CLIENT_ID,
+      },
+    }),
+    resolveApiKeyFn: () => API_KEY,
+    timezoneFn: () => "Asia/Manila",
+    withSyncLockFn: (task) => task(),
+  });
+
+  assert.deepEqual(events, [
+    ["created", true, false],
+    ["start", "Collecting local token usage"],
+    ["update", "Sending usage to Cribble"],
+    ["stop"],
+  ]);
+});
+
+test("scheduled sync disables progress animation even with a TTY", async () => {
+  let activityEnabled;
+  await main(["sync", "--background"], {}, {
+    createActivityFn: ({ enabled }) => {
+      activityEnabled = enabled;
+      return { start() {}, update() {}, stop() {} };
+    },
+    getClientIdFn: () => CLIENT_ID,
+    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+    mergeSyncStateFn: () => {},
+    output: { isTTY: true, write() {} },
+    postSnapshotWithRetryFn: async () => ({
+      status: 200,
+      endpoint: "https://cribble.dev/api/agent/usage",
+      body: {
+        success: true,
+        inserted: 1,
+        replaced: 0,
+        stale: 0,
+        clientId: CLIENT_ID,
+      },
+    }),
+    resolveApiKeyFn: () => API_KEY,
+    timezoneFn: () => "Asia/Manila",
+    withSyncLockFn: (task) => task(),
+  });
+
+  assert.equal(activityEnabled, false);
 });
 
 test("failed sync records an actionable error state", async () => {

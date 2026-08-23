@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
+const { stripVTControlCharacters } = require("node:util");
 
 const {
   DEFAULT_SYNC_ENDPOINT,
@@ -388,6 +389,46 @@ test("renderSnapshot produces a compact human-readable report", () => {
   assert.doesNotMatch(rendered, /modelBreakdowns/);
 });
 
+test("usage report has stable plain and styled snapshots", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          date: "2026-08-22",
+          inputTokens: 1200,
+          outputTokens: 300,
+          totalCost: 1.5,
+          modelsUsed: ["gpt-5"],
+        },
+      ],
+    },
+    { now: NOW },
+  );
+  const plain = renderSnapshot(snapshot, { color: false });
+  const styled = renderSnapshot(snapshot, { color: true });
+
+  assert.equal(
+    plain,
+    [
+      "Cribble · Token usage",
+      "2026-08-22 · 1 usage day",
+      "",
+      "Total tokens    1,500",
+      "Input / output  1,200 / 300",
+      "Cache tokens    0",
+      "Estimated cost  $1.50",
+      "Agents          —",
+      "Models          gpt-5",
+      "",
+      "Date        Input  Output  Cache  Total   Cost",
+      "──────────  ─────  ──────  ─────  ─────  ─────",
+      "2026-08-22  1,200     300      0  1,500  $1.50",
+    ].join("\n"),
+  );
+  assert.match(styled, /\u001b\[1;38;2;208;254;29m/);
+  assert.equal(stripVTControlCharacters(styled), plain);
+});
+
 test("parseArgs handles show and sync options", () => {
   assert.deepEqual(parseArgs([]), {
     command: "show",
@@ -450,7 +491,7 @@ test("sync dry-run works without a key or network access", async () => {
   const payload = JSON.parse(output[0]);
   assert.equal(payload.clientId, CLIENT_ID);
   assert.equal(payload.timezone, "Asia/Manila");
-  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.2.0" });
+  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.3.0" });
 });
 
 test("parseEndpoint only allows valid HTTP endpoints", () => {

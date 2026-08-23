@@ -43,6 +43,23 @@ cribble background uninstall
 Cribble reads local [`ccusage`](https://ccusage.com/) data only—it does not
 intercept prompts or model traffic. Run `cribble --help` for every option.
 
+Interactive syncs use Cribble colors, a small progress animation, and a final
+receipt with the synced range, token total, estimated cost, and server result.
+LaunchAgent runs, CI, pipes, and redirected output stay plain. Use
+`--no-color` on any command or set `NO_COLOR=1` when needed.
+
+## <img src="assets/cribble-mark.svg" width="16" height="16" alt=""> Update
+
+```sh
+npm install --global cribble-agent@latest
+cribble start
+cribble status
+```
+
+Running `cribble start` after an update refreshes the explicit background job
+to the current installed CLI and Node paths. Your Agent key remains in macOS
+Keychain.
+
 ## <img src="assets/cribble-mark.svg" width="16" height="16" alt=""> Develop
 
 ```sh
@@ -52,4 +69,6 @@ npm test
 ```
 
 `npm link` exposes this checkout as `cribble`; it is not needed after the
-global install. Visit [Cribble.dev](https://cribble.dev) to get started.
+global install. The private-beta operating checklist is in
+[`docs/BETA_RUNBOOK.md`](docs/BETA_RUNBOOK.md). Visit
+[Cribble.dev](https://cribble.dev) to get started.
