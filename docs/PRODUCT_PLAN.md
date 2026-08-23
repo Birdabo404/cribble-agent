@@ -63,22 +63,27 @@ dashboard described in Phase 7 is not built yet.
 - [x] Deploy Cribble routes and Settings UI before enabling any scheduled client.
 - [x] Complete the CLI production-hardening pass and live pilot verification.
 - [x] Publish `cribble-agent@1.2.0` to npm so beta users do not clone a mutable
-  development checkout.
-- [ ] Add trusted publishing and provenance before automated npm releases.
-- [ ] Provide a Homebrew tap for a more Mac-native install.
+  development checkout, then prepare `1.3.0` as the hardened Phase 6 release.
+- [x] Add CI across supported Node versions and Apple Silicon/Intel macOS.
+- [x] Add npm trusted publishing with provenance-ready, tokenless GitHub
+  releases.
+- [ ] Provide a Homebrew tap for a more Mac-native install. Intentionally
+  deferred until Phase 7 is complete.
 - [x] Create the pilot's one-time key through signed-in Account Settings and
   save it to macOS Keychain.
 - [x] Verify one manual sync end to end, then enable background sync for one
   pilot account and observe it before expanding the beta.
-- After the pilot data path is proven, give foreground CLI commands a focused
+- [x] After the pilot data path is proven, give foreground CLI commands a focused
   presentation pass: semantic Cribble colors for collection/sync/success/error
   states, a compact animated progress indicator while work is active, and a
   polished final receipt showing the synced date range and totals.
-- Keep presentation separate from sync logic. Disable animation automatically
+- [x] Keep presentation separate from sync logic. Disable animation automatically
   for LaunchAgent runs, CI, redirected output, and non-interactive terminals;
   honor `--no-color` and `NO_COLOR`; and snapshot-test both styled and plain
   output so visual polish cannot hide failures or corrupt logs.
-- Keep a documented stop/uninstall path and never silently enroll users.
+- [x] Add a private-beta runbook with manual-first onboarding, diagnostics,
+  update, key-revocation, pause, and uninstall procedures.
+- [x] Keep a documented stop/uninstall path and never silently enroll users.
 
 The production deployment itself does not enroll a machine. No scheduled sync
 is installed until the pilot explicitly runs `background install`.
