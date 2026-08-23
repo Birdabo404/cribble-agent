@@ -39,9 +39,16 @@ cribble sync
 cribble status
 ```
 
+That three-command path is intentional: `connect` stores the key, the first
+`sync` proves the key and local collector work, and `start` is the explicit
+opt-in for automatic background syncing.
+
 The production endpoint is `https://cribble.dev/api/agent/usage`. Endpoint
-overrides require HTTPS, except for loopback-only local development. Agent keys
-are never written to sync status or background-service files.
+overrides require HTTPS, except for loopback-only local development. A custom
+endpoint never receives the Agent key stored in Keychain: development syncs
+must supply `CRIBBLE_API_KEY` explicitly. Custom endpoints cannot be saved in
+the background job. Agent keys are never written to sync status or
+background-service files or inherited by the `ccusage` collector process.
 
 Optional background sync is macOS-only:
 
@@ -56,9 +63,10 @@ Use `cribble background uninstall` to remove automatic syncing completely.
 The older `cribble auth ...` and `cribble background ...` forms remain
 available for scripts and advanced management.
 
-Installing background sync records the current Node executable and this
-checkout's `index.js` path. If either moves, uninstall and reinstall the
-background job. Nothing is scheduled until `cribble start` is run.
+Installing background sync records a stable Node command path when one is
+available and this checkout's `index.js` path. If the checkout moves, run
+`cribble start` again from its new location. Nothing is scheduled until that
+command is run explicitly.
 
 `CRIBBLE_API_KEY` is available only as an explicit development/CI override;
 normal macOS use should keep the key in Keychain.

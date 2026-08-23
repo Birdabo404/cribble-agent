@@ -98,6 +98,46 @@ test("hidden Agent-key input uses Cribble wording and never echoes the secret", 
   assert.equal(input.paused, true);
 });
 
+test("hidden Agent-key input accepts terminal bracketed paste markers", async () => {
+  class FakeInput extends EventEmitter {
+    isTTY = true;
+    isRaw = false;
+    isPaused() { return false; }
+    pause() {}
+    resume() {}
+    setRawMode(enabled) { this.isRaw = enabled; }
+  }
+
+  const input = new FakeInput();
+  const output = { isTTY: true, write: () => {} };
+  const reading = readHiddenLine({ input, output });
+  input.emit("data", `\u001b[200~${API_KEY}\u001b[201~\n`);
+
+  assert.equal(await reading, API_KEY);
+  assert.equal(input.isRaw, false);
+});
+
+test("hidden Agent-key input restores terminal state when input ends", async () => {
+  class FakeInput extends EventEmitter {
+    isTTY = true;
+    isRaw = false;
+    paused = true;
+    isPaused() { return this.paused; }
+    pause() { this.paused = true; }
+    resume() { this.paused = false; }
+    setRawMode(enabled) { this.isRaw = enabled; }
+  }
+
+  const input = new FakeInput();
+  const output = { isTTY: true, write: () => {} };
+  const reading = readHiddenLine({ input, output });
+  input.emit("end");
+
+  await assert.rejects(reading, /ended before a key/);
+  assert.equal(input.isRaw, false);
+  assert.equal(input.paused, true);
+});
+
 test("Keychain setup sends the secret over stdin and never puts it in argv", async () => {
   let invocation;
   await promptAndStoreApiKey({

@@ -40,7 +40,13 @@ test("resolveBundledBinary supports npm-hoisted dependencies", () => {
 test("loadUsage invokes the configured collector without a shell", () => {
   let invocation;
   const result = loadUsage(
-    { CCUSAGE_BIN: "/opt/tools/ccusage" },
+    {
+      CCUSAGE_BIN: "/opt/tools/ccusage",
+      HOME: "/Users/test",
+      CRIBBLE_API_KEY: `crib_ag_${"f".repeat(64)}`,
+      OPENAI_API_KEY: "must-not-leak",
+      NODE_OPTIONS: "--require=/tmp/evil.js",
+    },
     {
       execFileSyncFn: (command, args, options) => {
         invocation = { command, args, options };
@@ -53,6 +59,18 @@ test("loadUsage invokes the configured collector without a shell", () => {
   assert.equal(invocation.command, "/opt/tools/ccusage");
   assert.deepEqual(invocation.args, ["daily", "--json"]);
   assert.deepEqual(invocation.options.stdio, ["ignore", "pipe", "pipe"]);
+  assert.equal(invocation.options.env.HOME, "/Users/test");
+  assert.equal(invocation.options.env.NO_COLOR, "1");
+  assert.equal(invocation.options.env.CRIBBLE_API_KEY, undefined);
+  assert.equal(invocation.options.env.OPENAI_API_KEY, undefined);
+  assert.equal(invocation.options.env.NODE_OPTIONS, undefined);
+});
+
+test("loadUsage refuses a PATH-resolved CCUSAGE_BIN override", () => {
+  assert.throws(
+    () => loadUsage({ CCUSAGE_BIN: "ccusage" }, { execFileSyncFn: () => "{}" }),
+    /absolute executable path/,
+  );
 });
 
 test("loadUsage invokes the bundled collector through an absolute Node path", () => {

@@ -19,6 +19,8 @@ const {
   launchAgentPath,
   launchAgentPlist,
   pauseBackground,
+  resolveStableNodePath,
+  resumeBackground,
 } = require("../lib/background");
 
 test("launchAgentPlist schedules an opt-in low-priority sync without secrets", () => {
@@ -78,6 +80,7 @@ test("installBackground validates, loads, and starts the generated service", () 
     assert.match(readFileSync(result.filePath, "utf8"), /--background/);
     assert.equal(commands[0][0], "/usr/bin/plutil");
     assert.deepEqual(commands.slice(1).map((command) => command.slice(0, 2)), [
+      ["/bin/launchctl", "print-disabled"],
       ["/bin/launchctl", "enable"],
       ["/bin/launchctl", "bootout"],
       ["/bin/launchctl", "bootstrap"],
@@ -87,6 +90,25 @@ test("installBackground validates, loads, and starts the generated service", () 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("resolveStableNodePath prefers a PATH shim targeting the running Node binary", () => {
+  const targets = new Map([
+    ["/opt/homebrew/Cellar/node/25.2.1/bin/node", "/opt/homebrew/Cellar/node/25.2.1/bin/node"],
+    ["/opt/homebrew/bin/node", "/opt/homebrew/Cellar/node/25.2.1/bin/node"],
+  ]);
+
+  assert.equal(
+    resolveStableNodePath(
+      "/opt/homebrew/Cellar/node/25.2.1/bin/node",
+      "/opt/homebrew/bin:/usr/bin",
+      {
+        existsSyncFn: (filePath) => targets.has(filePath),
+        realpathSyncFn: (filePath) => targets.get(filePath),
+      },
+    ),
+    "/opt/homebrew/bin/node",
+  );
 });
 
 test("installBackground removes a new plist when launchctl cannot load it", () => {
@@ -157,6 +179,84 @@ test("installBackground restores a previous schedule after a failed update", () 
 
     assert.equal(readFileSync(filePath, "utf8"), previous);
     assert.equal(bootstrapCalls, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installBackground restores a paused flag after a failed update", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-background-"));
+  const actions = [];
+  const spawnSyncFn = (command, args) => {
+    actions.push(args[0]);
+    if (args[0] === "print-disabled") {
+      return { status: 0, stdout: `\"${BACKGROUND_LABEL}\" => true`, stderr: "" };
+    }
+    if (args[0] === "bootout") {
+      return { status: 3, stdout: "", stderr: "No such process" };
+    }
+    if (args[0] === "bootstrap") {
+      return { status: 5, stdout: "", stderr: "load failed" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    assert.throws(
+      () =>
+        installBackground({
+          homeDirectory: root,
+          nodePath: process.execPath,
+          entryPath: join(__dirname, "..", "index.js"),
+          platform: "darwin",
+          uid: 501,
+          spawnSyncFn,
+        }),
+      /load failed/,
+    );
+    assert.equal(actions.at(-1), "disable");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resumeBackground restores the paused state when startup fails", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-background-"));
+  const filePath = launchAgentPath(root);
+  const actions = [];
+  let bootoutCalls = 0;
+  const spawnSyncFn = (_command, args) => {
+    actions.push(args[0]);
+    if (args[0] === "print-disabled") {
+      return { status: 0, stdout: `\"${BACKGROUND_LABEL}\" => true`, stderr: "" };
+    }
+    if (args[0] === "print") return { status: 3, stdout: "", stderr: "not loaded" };
+    if (args[0] === "bootout") {
+      bootoutCalls += 1;
+      return bootoutCalls === 1
+        ? { status: 3, stdout: "", stderr: "No such process" }
+        : { status: 0, stdout: "", stderr: "" };
+    }
+    if (args[0] === "kickstart") {
+      return { status: 5, stdout: "", stderr: "start failed" };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    mkdirSync(join(root, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(filePath, "valid plist placeholder");
+    assert.throws(
+      () =>
+        resumeBackground({
+          homeDirectory: root,
+          platform: "darwin",
+          uid: 501,
+          spawnSyncFn,
+        }),
+      /start failed/,
+    );
+    assert.equal(actions.at(-1), "disable");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

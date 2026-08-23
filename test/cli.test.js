@@ -70,6 +70,36 @@ test("parseArgs models the explicit background lifecycle", () => {
     /--endpoint can only be used/,
   );
   assert.throws(() => parseArgs(["sync", "--endpoint="]), /needs a value/);
+  assert.equal(parseArgs(["--version"]).command, "version");
+});
+
+test("custom endpoints never receive the Agent key from Keychain", async () => {
+  let keyRead = false;
+  await assert.rejects(
+    main(["sync", "--endpoint", "https://example.test/collect"], {}, {
+      resolveApiKeyFn: () => {
+        keyRead = true;
+        return API_KEY;
+      },
+    }),
+    /never use the Agent key stored in Keychain/,
+  );
+  assert.equal(keyRead, false);
+});
+
+test("background sync refuses a custom endpoint that cannot receive an environment key", async () => {
+  let installed = false;
+  await assert.rejects(
+    main(["start", "--endpoint", "https://example.test/collect"], {}, {
+      installBackgroundFn: () => {
+        installed = true;
+      },
+      keychainHasApiKeyFn: () => true,
+      readKeychainApiKeyFn: () => API_KEY,
+    }),
+    /Custom endpoints cannot be saved/,
+  );
+  assert.equal(installed, false);
 });
 
 test("successful sync records durable attempt and result state", async () => {

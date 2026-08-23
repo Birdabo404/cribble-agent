@@ -191,3 +191,35 @@ test("postSnapshotWithRetry bounds response bodies", async () => {
     /unexpectedly large response/,
   );
 });
+
+test("postSnapshotWithRetry stops reading an oversized streamed response", async () => {
+  let textCalled = false;
+  await assert.rejects(
+    postSnapshotWithRetry(
+      PAYLOAD,
+      {
+        endpoint: "https://cribble.test/api/agent/usage",
+        apiKey: API_KEY,
+        fetchFn: async () => ({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array(40 * 1024));
+              controller.enqueue(new Uint8Array(40 * 1024));
+              controller.close();
+            },
+          }),
+          text: async () => {
+            textCalled = true;
+            return "";
+          },
+        }),
+      },
+      { attempts: 1 },
+    ),
+    /unexpectedly large response/,
+  );
+  assert.equal(textCalled, false);
+});

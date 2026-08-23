@@ -99,6 +99,47 @@ test("buildSnapshot supports the legacy type/data/summary shape", () => {
   assert.equal(snapshot.totals.cacheTokens, 27);
 });
 
+test("buildSnapshot orders daily models by actual token usage without exposing breakdowns", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          period: "2026-08-22",
+          modelsUsed: ["gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra"],
+          modelBreakdowns: [
+            {
+              modelName: "gpt-5.5",
+              inputTokens: 100,
+              outputTokens: 10,
+              cacheReadTokens: 900,
+            },
+            {
+              modelName: "gpt-5.6-sol",
+              inputTokens: 500,
+              outputTokens: 50,
+              cacheReadTokens: 9_000,
+            },
+            {
+              modelName: "gpt-5.6-terra",
+              inputTokens: 20,
+              outputTokens: 2,
+              cacheReadTokens: 100,
+            },
+          ],
+        },
+      ],
+    },
+    { now: NOW },
+  );
+
+  assert.deepEqual(snapshot.daily[0].models, [
+    "gpt-5.6-sol",
+    "gpt-5.5",
+    "gpt-5.6-terra",
+  ]);
+  assert.equal(snapshot.daily[0].modelBreakdowns, undefined);
+});
+
 test("buildWirePayload adds client identity, timezone, and provenance", () => {
   const snapshot = buildSnapshot(
     {
@@ -203,6 +244,61 @@ test("duplicate source dates are merged before display and ingestion", () => {
   assert.deepEqual(snapshot.daily[0].agents, ["codex", "claude"]);
   assert.equal(payload.daily.length, 1);
   assert.equal(payload.daily[0].totalTokens, 35);
+});
+
+test("duplicate source dates rank models by combined token usage", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          date: "2026-08-22",
+          modelsUsed: ["model-a", "model-b"],
+          modelBreakdowns: [
+            { modelName: "model-a", inputTokens: 100 },
+            { modelName: "model-b", inputTokens: 50 },
+          ],
+        },
+        {
+          date: "2026-08-22",
+          modelsUsed: ["model-a", "model-b"],
+          modelBreakdowns: [
+            { modelName: "model-a", inputTokens: 1 },
+            { modelName: "model-b", inputTokens: 500 },
+          ],
+        },
+      ],
+    },
+    { now: NOW },
+  );
+
+  assert.deepEqual(snapshot.daily[0].models, ["model-b", "model-a"]);
+  assert.equal(snapshot.daily[0].modelTokenTotals, undefined);
+});
+
+test("invalid source dates cannot displace a valid display day", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        { date: "2026-08-22", inputTokens: 1 },
+        { date: "unknown", inputTokens: 999 },
+      ],
+    },
+    { days: 1, now: NOW },
+  );
+
+  assert.deepEqual(snapshot.daily.map((row) => row.date), ["2026-08-22"]);
+  assert.equal(snapshot.totals.totalTokens, 1);
+});
+
+test("malformed source token values fail closed", () => {
+  assert.throws(
+    () =>
+      buildSnapshot(
+        { daily: [{ date: "2026-08-22", inputTokens: "100" }] },
+        { now: NOW },
+      ),
+    /Invalid inputTokens/,
+  );
 });
 
 test("source labels cannot inject terminal control or bidi characters", () => {
@@ -354,7 +450,7 @@ test("sync dry-run works without a key or network access", async () => {
   const payload = JSON.parse(output[0]);
   assert.equal(payload.clientId, CLIENT_ID);
   assert.equal(payload.timezone, "Asia/Manila");
-  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.1.0" });
+  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.2.0" });
 });
 
 test("parseEndpoint only allows valid HTTP endpoints", () => {

@@ -82,7 +82,7 @@ function parseArgs(argv) {
       command = requestedCommand;
     }
   }
-  if (!["show", "sync", "status", "auth", "background", "help"].includes(command)) {
+  if (!["show", "sync", "status", "auth", "background", "help", "version"].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
 
@@ -111,6 +111,7 @@ function parseArgs(argv) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") options.command = "help";
+    else if (arg === "--version" || arg === "-v") options.command = "version";
     else if (arg === "--json") {
       options.json = true;
       seen.add("json");
@@ -197,6 +198,11 @@ Quick commands:
   cribble pause
   cribble resume
 
+First-time setup:
+  1. cribble connect   Save the Agent key from Cribble Settings
+  2. cribble sync      Verify the key and send the first snapshot
+  3. cribble start     Turn on automatic background sync
+
 Advanced management:
   cribble disconnect
   cribble background <install|status|pause|resume|uninstall> [options]
@@ -213,6 +219,7 @@ General options:
   --endpoint URL Override CRIBBLE_SYNC_URL for this sync
   --dry-run      Print the wire payload without saving status or sending it
   --no-color     Disable terminal colors
+  -v, --version  Show the installed Cribble Agent version
   -h, --help     Show this help
 
 Environment:
@@ -251,18 +258,34 @@ function renderStatus({ state, credential, service }) {
 
   if (!state) {
     lines.push("Last sync       never");
-    return lines.join("\n");
+  } else {
+    lines.push(`Last attempt    ${statusValue(state.lastAttemptAt)}`);
+    lines.push(`Last success    ${statusValue(state.lastSuccessAt, "never")}`);
+    if (state.lastResult) {
+      lines.push(
+        `Last result     ${statusValue(state.lastResult.inserted, "0")} inserted, ${statusValue(state.lastResult.replaced, "0")} replaced, ${statusValue(state.lastResult.stale, "0")} unchanged`,
+      );
+    }
+    if (state.lastError) lines.push(`Last error      ${statusValue(state.lastError)}`);
   }
 
-  lines.push(`Last attempt    ${statusValue(state.lastAttemptAt)}`);
-  lines.push(`Last success    ${statusValue(state.lastSuccessAt, "never")}`);
-  if (state.lastResult) {
-    lines.push(
-      `Last result     ${statusValue(state.lastResult.inserted, "0")} inserted, ${statusValue(state.lastResult.replaced, "0")} replaced, ${statusValue(state.lastResult.stale, "0")} unchanged`,
-    );
-  }
-  if (state.lastError) lines.push(`Last error      ${statusValue(state.lastError)}`);
+  const credentialNeedsHelp =
+    credential === "not configured" || credential.includes("invalid") || credential.includes("unreadable");
+  const nextStep = credentialNeedsHelp
+    ? "run `cribble connect`"
+    : state?.lastError
+      ? "run `cribble sync` to retry in the foreground"
+      : service === "paused"
+        ? "run `cribble resume`"
+        : service === "not installed"
+          ? "run `cribble start` for automatic syncing"
+          : "none — automatic syncing is active";
+  lines.push(`Next step       ${nextStep}`);
   return lines.join("\n");
+}
+
+function isProductionEndpoint(endpoint) {
+  return safeEndpointLabel(endpoint) === safeEndpointLabel(parseEndpoint(DEFAULT_SYNC_ENDPOINT));
 }
 
 async function main(
@@ -299,6 +322,11 @@ async function main(
     return;
   }
 
+  if (options.command === "version") {
+    deps.log(`Cribble Agent ${packageVersion}`);
+    return;
+  }
+
   if (options.command === "auth") {
     if (options.action === "set") {
       await deps.promptAndStoreApiKeyFn();
@@ -315,7 +343,9 @@ async function main(
         }
         throw error;
       }
-      deps.log("Cribble Agent key saved securely in macOS Keychain.");
+      deps.log(
+        "Cribble Agent key saved securely in macOS Keychain.\nNext: run `cribble sync` to verify it and send your first snapshot.",
+      );
       return;
     }
     if (options.action === "remove") {
@@ -356,14 +386,18 @@ async function main(
       if (!storedApiKey) {
         throw new Error("No valid Agent key configured. Run `cribble connect` first.");
       }
-      if (options.endpoint) parseEndpoint(options.endpoint);
+      if (options.endpoint && !isProductionEndpoint(parseEndpoint(options.endpoint))) {
+        throw new Error(
+          "Custom endpoints cannot be saved in background sync. Use a manual sync with an explicit CRIBBLE_API_KEY for local development.",
+        );
+      }
       const installed = deps.installBackgroundFn({
         intervalMinutes: options.intervalMinutes,
         days: options.days,
         endpoint: options.endpoint,
       });
       deps.log(
-        `Background sync installed: every ${installed.intervalMinutes} minutes, latest ${installed.days} day${installed.days === 1 ? "" : "s"}.`,
+        `Background sync is on: every ${installed.intervalMinutes} minutes, latest ${installed.days} day${installed.days === 1 ? "" : "s"}.\nAn initial sync was queued. Run \`cribble status\` in a moment to confirm it.`,
       );
       return;
     }
@@ -473,7 +507,13 @@ async function main(
   }
 
   const endpoint = options.endpoint ?? env.CRIBBLE_SYNC_URL ?? DEFAULT_SYNC_ENDPOINT;
-  const endpointLabel = safeEndpointLabel(parseEndpoint(endpoint));
+  const parsedEndpoint = parseEndpoint(endpoint);
+  if (!isProductionEndpoint(parsedEndpoint) && !env.CRIBBLE_API_KEY) {
+    throw new Error(
+      "Custom sync endpoints never use the Agent key stored in Keychain. Set CRIBBLE_API_KEY explicitly for this development sync.",
+    );
+  }
+  const endpointLabel = safeEndpointLabel(parsedEndpoint);
 
   const performSync = async () => {
     const lastAttemptAt = asIso(deps.nowFn);
