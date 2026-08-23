@@ -10,14 +10,21 @@ CLI reads local `ccusage` data; it does not intercept prompts or model traffic.
 Requires Node.js 18 or newer.
 
 ```sh
-npm ci
-npm link
+npm install --global cribble-agent
+cribble connect
+cribble sync
+cribble start
+```
+
+That installs the `cribble` command, securely connects this Mac to your
+Cribble account, proves the first sync works, and then opts in to automatic
+background syncing. Check it any time with:
+
+```sh
+cribble status
 cribble
 cribble --days 30
 ```
-
-`npm link` makes this checkout available as the `cribble` command. Run it once
-per Node installation.
 
 The CLI reads usage through its bundled [`ccusage`](https://ccusage.com/)
 dependency. Use `--json` for machine-readable output.
@@ -76,7 +83,12 @@ Run `cribble --help` for all commands and options.
 ## Development
 
 ```sh
+npm ci
+npm link
 npm test
 ```
+
+`npm link` makes a development checkout available as the `cribble` command.
+It is not needed for the published package.
 
 Visit [Cribble.dev](https://cribble.dev) for more.

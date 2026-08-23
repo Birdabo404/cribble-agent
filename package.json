@@ -4,7 +4,7 @@
   "description": "A CLI and opt-in macOS background client for Cribble agent token usage.",
   "main": "index.js",
   "bin": {
-    "cribble": "./index.js"
+    "cribble": "index.js"
   },
   "files": [
     "index.js",
@@ -18,7 +18,8 @@
     "sync": "node index.js sync",
     "status": "node index.js status",
     "background:status": "node index.js background status",
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "npm test"
   },
   "repository": {
     "type": "git",

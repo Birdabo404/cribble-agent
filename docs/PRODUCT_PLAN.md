@@ -61,12 +61,13 @@ locally. Token data is still not rendered on a dashboard.
 - [x] Apply migration 041 through the controlled production database process.
 - [x] Deploy Cribble routes and Settings UI before enabling any scheduled client.
 - [x] Complete the CLI production-hardening pass and live pilot verification.
-- [ ] Choose and implement a signed/versioned distribution path so beta users
-  do not clone a mutable development checkout.
-- [ ] Create the pilot's one-time key through signed-in Account Settings and
+- [ ] Publish the versioned npm package so beta users do not clone a mutable
+  development checkout. Add trusted publishing/provenance before automated
+  releases, then provide a Homebrew tap for a more Mac-native install.
+- [x] Create the pilot's one-time key through signed-in Account Settings and
   save it to macOS Keychain.
-- Verify one manual sync end to end, then enable background sync for one pilot
-  account and observe it before expanding the beta.
+- [x] Verify one manual sync end to end, then enable background sync for one
+  pilot account and observe it before expanding the beta.
 - After the pilot data path is proven, give foreground CLI commands a focused
   presentation pass: semantic Cribble colors for collection/sync/success/error
   states, a compact animated progress indicator while work is active, and a
