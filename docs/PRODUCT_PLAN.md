@@ -35,11 +35,12 @@ agent logs -> ccusage -> reusable Cribble engine -> Cribble ingest API
 3. A bearer-authenticated, idempotent daily ingest endpoint.
 4. A manual terminal report and manual `sync` command, plus Settings key UI.
 
-The production foundation is now live. Migration 041 is applied to Cribble's
-production Supabase project, the authenticated key-management and bearer-ingest
-routes are deployed at `cribble.dev`, and Account Settings contains the token
-tracker key panel. The CLI collection path and production-shaped dry run work
-locally. Token data is still not rendered on a dashboard.
+The production foundation is now live. The token-usage migrations through 046
+are applied to Cribble's production Supabase project, the authenticated
+key-management and bearer-ingest routes are deployed at `cribble.dev`, and
+Account Settings contains the token tracker key and sharing controls. The
+opt-in Burn Board renders aggregate public usage; the private personal token
+dashboard described in Phase 7 is not built yet.
 
 ## Revised remaining phases
 
@@ -61,9 +62,10 @@ locally. Token data is still not rendered on a dashboard.
 - [x] Apply migration 041 through the controlled production database process.
 - [x] Deploy Cribble routes and Settings UI before enabling any scheduled client.
 - [x] Complete the CLI production-hardening pass and live pilot verification.
-- [ ] Publish the versioned npm package so beta users do not clone a mutable
-  development checkout. Add trusted publishing/provenance before automated
-  releases, then provide a Homebrew tap for a more Mac-native install.
+- [x] Publish `cribble-agent@1.2.0` to npm so beta users do not clone a mutable
+  development checkout.
+- [ ] Add trusted publishing and provenance before automated npm releases.
+- [ ] Provide a Homebrew tap for a more Mac-native install.
 - [x] Create the pilot's one-time key through signed-in Account Settings and
   save it to macOS Keychain.
 - [x] Verify one manual sync end to end, then enable background sync for one
