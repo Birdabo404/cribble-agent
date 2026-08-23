@@ -63,10 +63,12 @@ dashboard described in Phase 7 is not built yet.
 - [x] Deploy Cribble routes and Settings UI before enabling any scheduled client.
 - [x] Complete the CLI production-hardening pass and live pilot verification.
 - [x] Publish `cribble-agent@1.2.0` to npm so beta users do not clone a mutable
-  development checkout, then prepare `1.3.0` as the hardened Phase 6 release.
+  development checkout, then publish `1.3.0` as the hardened Phase 6 release.
 - [x] Add CI across supported Node versions and Apple Silicon/Intel macOS.
 - [x] Add npm trusted publishing with provenance-ready, tokenless GitHub
   releases.
+- [x] Require 2FA for direct publishing and disallow traditional npm publish
+  tokens after verifying the trusted release path.
 - [ ] Provide a Homebrew tap for a more Mac-native install. Intentionally
   deferred until Phase 7 is complete.
 - [x] Create the pilot's one-time key through signed-in Account Settings and

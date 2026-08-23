@@ -3,10 +3,10 @@
 Cribble Agent uses npm trusted publishing from GitHub Actions. The release job
 does not use a long-lived npm write token.
 
-## One-time npm configuration
+## Current npm security posture
 
-Configure the `cribble-agent` package's trusted publisher with these exact
-values:
+As of `1.3.0`, the `cribble-agent` package's trusted publisher is configured
+with these exact values:
 
 - provider: GitHub Actions
 - organization or user: `Birdabo404`
@@ -14,8 +14,9 @@ values:
 - workflow filename: `release.yml`
 - allowed action: `npm publish`
 
-After a trusted release succeeds, set npm publishing access to require 2FA and
-disallow traditional tokens. Keep account recovery codes outside the repo.
+The package requires 2FA for direct publishing and disallows traditional
+publish tokens. Keep that restriction enabled and keep account recovery codes
+outside the repo.
 
 ## Release a version
 
