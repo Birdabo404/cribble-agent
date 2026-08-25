@@ -154,3 +154,100 @@ test("Keychain setup sends the secret over stdin and never puts it in argv", asy
   assert.equal(invocation.options.input, `${API_KEY}\n${API_KEY}\n`);
   assert.equal(invocation.args.some((argument) => argument.startsWith("crib_ag_")), false);
 });
+
+test("resolveApiKey reads Windows Credential Manager when no environment override is set", () => {
+  const resolved = resolveApiKey(
+    {},
+    {
+      platform: "win32",
+      readKeychainApiKeyFn: ({ platform }) => {
+        assert.equal(platform, "win32");
+        return API_KEY;
+      },
+    },
+  );
+
+  assert.equal(resolved, API_KEY);
+});
+
+test("resolveApiKey skips the store on unsupported platforms", () => {
+  let keychainRead = false;
+  const resolved = resolveApiKey(
+    {},
+    {
+      platform: "linux",
+      readKeychainApiKeyFn: () => {
+        keychainRead = true;
+        return API_KEY;
+      },
+    },
+  );
+
+  assert.equal(resolved, null);
+  assert.equal(keychainRead, false);
+});
+
+test("Windows credential lookup reads stdout and never puts the secret in argv", () => {
+  let invocation;
+  const key = readKeychainApiKey({
+    platform: "win32",
+    spawnSyncFn: (command, args, options) => {
+      invocation = { command, args, options };
+      return { status: 0, stdout: `${API_KEY}\n`, stderr: "" };
+    },
+  });
+
+  assert.equal(key, API_KEY);
+  assert.match(String(invocation.command), /powershell\.exe$/i);
+  assert.equal(invocation.args.includes("cmdkey"), false);
+  assert.ok(invocation.args.includes("read"));
+  assert.ok(invocation.args.includes(KEYCHAIN_SERVICE));
+  assert.ok(invocation.args.includes(KEYCHAIN_ACCOUNT));
+  assert.ok(invocation.args.some((argument) => String(argument).endsWith("windows-credential.ps1")));
+  assert.equal(invocation.args.some((argument) => String(argument).includes(API_KEY)), false);
+});
+
+test("Windows credential setup sends the secret over stdin and never puts it in argv", async () => {
+  let invocation;
+  await promptAndStoreApiKey({
+    platform: "win32",
+    readSecretFn: async () => API_KEY,
+    spawnSyncFn: (command, args, options) => {
+      invocation = { command, args, options };
+      return { status: 0 };
+    },
+  });
+
+  assert.match(String(invocation.command), /powershell\.exe$/i);
+  assert.equal(/cmdkey/i.test(String(invocation.command)), false);
+  assert.equal(invocation.args.some((argument) => /cmdkey/i.test(String(argument))), false);
+  assert.ok(invocation.args.includes("store"));
+  assert.ok(invocation.args.includes(KEYCHAIN_SERVICE));
+  assert.deepEqual(invocation.options.stdio, ["pipe", "pipe", "pipe"]);
+  assert.equal(invocation.options.input, `${API_KEY}\n`);
+  assert.equal(invocation.args.some((argument) => String(argument).includes(API_KEY)), false);
+  assert.equal(invocation.args.some((argument) => String(argument).startsWith("crib_ag_")), false);
+});
+
+test("unsupported platforms cannot store or read an Agent key", async () => {
+  await assert.rejects(
+    promptAndStoreApiKey({
+      platform: "linux",
+      readSecretFn: async () => API_KEY,
+      spawnSyncFn: () => {
+        throw new Error("spawn should not run");
+      },
+    }),
+    /macOS or Windows/,
+  );
+  assert.throws(
+    () =>
+      readKeychainApiKey({
+        platform: "linux",
+        spawnSyncFn: () => {
+          throw new Error("spawn should not run");
+        },
+      }),
+    /macOS or Windows/,
+  );
+});

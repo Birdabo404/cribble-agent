@@ -66,6 +66,32 @@ jobs:
       - name: Smoke-test the CLI entry point
         run: node index.js --version
 
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Run tests
+        run: npm test
+      - name: Smoke-test the CLI entry point
+        run: node index.js --version
+      - name: Smoke-test Windows credential and task APIs
+        shell: bash
+        run: |
+          node -e "const k=require('./lib/keychain'); console.log('credential-exists', k.keychainHasApiKey())"
+          node -e "const b=require('./lib/background'); const s=b.backgroundStatus(); if (s.installed) { throw new Error('unexpected leftover Scheduled Task'); } console.log('task-status', JSON.stringify(s))"
+
   supply-chain:
     name: Supply-chain checks
     runs-on: ubuntu-latest

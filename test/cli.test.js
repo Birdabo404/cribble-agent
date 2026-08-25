@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { main, parseArgs } = require("../index");
+const { main, parseArgs, usage } = require("../index");
 const { SyncAlreadyRunningError } = require("../lib/state");
 
 const API_KEY = `crib_ag_${"c".repeat(64)}`;
@@ -72,6 +72,8 @@ test("parseArgs models the explicit background lifecycle", () => {
   assert.throws(() => parseArgs(["sync", "--endpoint="]), /needs a value/);
   assert.equal(parseArgs(["--version"]).command, "version");
   assert.equal(parseArgs(["sync", "--no-color"]).color, false);
+  assert.match(usage(), /macOS and Windows/);
+  assert.match(usage(), /Scheduled Task/);
 });
 
 test("custom endpoints never receive the Agent key from Keychain", async () => {
@@ -353,7 +355,7 @@ test("status reports credential, service, and last sync without reading usage", 
   });
 
   assert.equal(usageRead, false);
-  assert.match(output[0], /Agent key\s+macOS Keychain/);
+  assert.match(output[0], /Agent key\s+(macOS Keychain|Windows Credential Manager)/);
   assert.match(output[0], /Background\s+paused/);
   assert.match(output[0], /1 inserted, 2 replaced, 3 unchanged/);
 });

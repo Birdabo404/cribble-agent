@@ -1,11 +1,12 @@
 # Cribble Agent private-beta runbook
 
-This is the safe path for enrolling one Mac at a time. Installing the package
-does not connect an account and does not enable background syncing.
+This is the safe path for enrolling one Mac or Windows machine at a time.
+Installing the package does not connect an account and does not enable
+background syncing.
 
 ## Enroll a tester
 
-1. Confirm the tester uses macOS with Node.js 18 or newer.
+1. Confirm the tester uses macOS or Windows with Node.js 18 or newer.
 2. Ask them to create a new Agent key in signed-in Cribble Account Settings.
 3. Install and connect the CLI:
 
@@ -32,8 +33,8 @@ does not connect an account and does not enable background syncing.
    ```
 
 `cribble connect` hides the key while it is pasted and stores it in macOS
-Keychain. Never request an Agent key in chat, email, screenshots, logs, or a
-bug report.
+Keychain or Windows Credential Manager. Never request an Agent key in chat,
+email, screenshots, logs, or a bug report.
 
 ## Diagnose without exposing secrets
 
@@ -85,9 +86,9 @@ cribble start
 cribble status
 ```
 
-Re-running `cribble start` is deliberate: it refreshes the LaunchAgent to the
-current installed CLI and Node paths. It does not create or replace the Agent
-key.
+Re-running `cribble start` is deliberate: it refreshes the LaunchAgent or
+Scheduled Task to the current installed CLI and Node paths. It does not create
+or replace the Agent key.
 
 ## Rollout gate
 
@@ -96,7 +97,7 @@ Expand beyond the current pilot only when all of the following are true:
 - foreground sync succeeds with a valid receipt;
 - scheduled sync has a recent success in `cribble status`;
 - revoke, pause, resume, uninstall, and reconnect paths are understood;
-- no Agent key appears in logs, process arguments, LaunchAgent files, or
-  collector environment variables;
+- no Agent key appears in logs, process arguments, LaunchAgent files,
+  Scheduled Task definitions, or collector environment variables;
 - server rate limiting, tenant isolation, and idempotent replacement remain
   green in backend tests and production monitoring.

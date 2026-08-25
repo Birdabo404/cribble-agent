@@ -11,6 +11,7 @@ const {
   uninstallBackground,
 } = require("./lib/background");
 const {
+  credentialStoreLabel,
   keychainHasApiKey,
   promptAndStoreApiKey,
   readKeychainApiKey,
@@ -234,8 +235,9 @@ Environment:
   CRIBBLE_API_KEY    Development/CI override for the Agent key
   CCUSAGE_BIN        Optional path to a ccusage executable
 
-Automatic sync is opt-in and macOS-only. Run \`cribble connect\` before
-\`cribble start\`. The Agent key is never written to the LaunchAgent.`;
+Automatic sync is opt-in on macOS and Windows. Run \`cribble connect\` before
+\`cribble start\`. The Agent key is never written to the LaunchAgent or
+Scheduled Task.`;
 }
 
 function asIso(nowFn) {
@@ -369,7 +371,7 @@ async function main(
         throw error;
       }
       deps.log(
-        `${renderNotice("Cribble Agent key saved securely in macOS Keychain.", { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
+        `${renderNotice(`Cribble Agent key saved securely in ${credentialStoreLabel()}.`, { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
       );
       return;
     }
@@ -379,8 +381,8 @@ async function main(
         const service = deps.backgroundStatusFn();
         activeBackground = service.installed && !service.disabled;
       } catch {
-        // Key removal remains usable on non-macOS test/development systems
-        // where background-service inspection is unavailable.
+        // Key removal remains usable on test/development systems where
+        // background-service inspection is unavailable.
       }
       if (activeBackground) {
         throw new Error(
@@ -390,7 +392,7 @@ async function main(
       const removed = deps.removeKeychainApiKeyFn();
       deps.log(
         removed
-          ? renderNotice("Cribble Agent key removed from Keychain.", { color: outputColor })
+          ? renderNotice(`Cribble Agent key removed from ${credentialStoreLabel()}.`, { color: outputColor })
           : renderNotice("No Agent key was stored.", { color: outputColor, kind: "warning" }),
       );
       return;
@@ -402,7 +404,7 @@ async function main(
     if (!deps.readKeychainApiKeyFn()) {
       throw new Error("The stored Agent key is unreadable. Run `cribble connect` again.");
     }
-    deps.log("Cribble Agent key is configured in macOS Keychain.");
+    deps.log(`Cribble Agent key is configured in ${credentialStoreLabel()}.`);
     return;
   }
 
@@ -481,13 +483,14 @@ async function main(
       }
     } else {
       try {
+        const store = credentialStoreLabel();
         if (deps.keychainHasApiKeyFn()) {
           credential = deps.readKeychainApiKeyFn()
-            ? "macOS Keychain"
-            : "invalid macOS Keychain key";
+            ? store
+            : `invalid ${store} key`;
         }
       } catch {
-        credential = "unreadable macOS Keychain key";
+        credential = `unreadable ${credentialStoreLabel()} key`;
       }
     }
     let service = "not installed";
