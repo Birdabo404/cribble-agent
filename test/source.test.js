@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { dirname, join, resolve } = require("node:path");
 
 const { loadUsage, resolveBundledBinary } = require("../lib/source");
 
@@ -27,14 +28,31 @@ test("loadUsage never downloads an unpinned collector at runtime", () => {
   assert.equal(executed, false);
 });
 
-test("resolveBundledBinary supports npm-hoisted dependencies", () => {
-  const binary = resolveBundledBinary("/app/node_modules/cribble-agent", {
-    existsSyncFn: (filePath) => filePath === "/app/node_modules/ccusage/src/cli.js",
+test("resolveBundledBinary skips Windows cmd/sh shims and uses the JS bin", () => {
+  const baseDirectory = join("/app", "cribble-agent");
+  const shim = join(baseDirectory, "node_modules", ".bin", "ccusage");
+  const packagePath = join("/app", "node_modules", "ccusage", "package.json");
+  const cliPath = resolve(dirname(packagePath), "./src/cli.js");
+  const binary = resolveBundledBinary(baseDirectory, {
+    platform: "win32",
+    existsSyncFn: (filePath) => filePath === shim || filePath === cliPath,
     readFileSyncFn: () => JSON.stringify({ bin: { ccusage: "./src/cli.js" } }),
-    requireResolveFn: () => "/app/node_modules/ccusage/package.json",
+    requireResolveFn: () => packagePath,
   });
 
-  assert.equal(binary, "/app/node_modules/ccusage/src/cli.js");
+  assert.equal(binary, cliPath);
+});
+
+test("resolveBundledBinary supports npm-hoisted dependencies", () => {
+  const packagePath = join("/app", "node_modules", "ccusage", "package.json");
+  const cliPath = resolve(dirname(packagePath), "./src/cli.js");
+  const binary = resolveBundledBinary(join("/app", "node_modules", "cribble-agent"), {
+    existsSyncFn: (filePath) => filePath === cliPath,
+    readFileSyncFn: () => JSON.stringify({ bin: { ccusage: "./src/cli.js" } }),
+    requireResolveFn: () => packagePath,
+  });
+
+  assert.equal(binary, cliPath);
 });
 
 test("loadUsage invokes the configured collector without a shell", () => {
@@ -75,11 +93,17 @@ test("loadUsage refuses a PATH-resolved CCUSAGE_BIN override", () => {
 
 test("loadUsage invokes the bundled collector through an absolute Node path", () => {
   let invocation;
+  const baseDirectory = join("/app", "cribble-agent");
+  const bundledBinary = join(baseDirectory, "node_modules", ".bin", "ccusage");
+  const packagePath = join(baseDirectory, "node_modules", "ccusage", "package.json");
+  const cliPath = resolve(dirname(packagePath), "./src/cli.js");
   const result = loadUsage(
     {},
     {
-      baseDirectory: "/app/cribble-agent",
-      existsSyncFn: (filePath) => filePath === "/app/cribble-agent/node_modules/.bin/ccusage",
+      baseDirectory,
+      existsSyncFn: (filePath) => filePath === bundledBinary || filePath === cliPath,
+      readFileSyncFn: () => JSON.stringify({ bin: { ccusage: "./src/cli.js" } }),
+      requireResolveFn: () => packagePath,
       nodePath: "/absolute/node",
       execFileSyncFn: (command, args, options) => {
         invocation = { command, args, options };
@@ -90,11 +114,11 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
 
   assert.deepEqual(result, { daily: [] });
   assert.equal(invocation.command, "/absolute/node");
-  assert.deepEqual(invocation.args, [
-    "/app/cribble-agent/node_modules/.bin/ccusage",
-    "daily",
-    "--json",
-  ]);
+  assert.ok(
+    invocation.args[0] === bundledBinary || invocation.args[0] === cliPath,
+    invocation.args[0],
+  );
+  assert.deepEqual(invocation.args.slice(1), ["daily", "--json"]);
 });
 
 test("loadUsage sanitizes collector failures before printing them", () => {
