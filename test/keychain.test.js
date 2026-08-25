@@ -7,6 +7,7 @@ const { EventEmitter } = require("node:events");
 const {
   KEYCHAIN_ACCOUNT,
   KEYCHAIN_SERVICE,
+  keychainHasApiKey,
   promptAndStoreApiKey,
   readHiddenLine,
   readKeychainApiKey,
@@ -249,5 +250,30 @@ test("unsupported platforms cannot store or read an Agent key", async () => {
         },
       }),
     /macOS or Windows/,
+  );
+});
+
+test("Windows credential lookup treats status 44 as missing", () => {
+  assert.equal(
+    keychainHasApiKey({
+      platform: "win32",
+      spawnSyncFn: () => ({ status: 44, stdout: "", stderr: "" }),
+    }),
+    false,
+  );
+});
+
+test("Windows credential errors include PowerShell stderr", () => {
+  assert.throws(
+    () =>
+      keychainHasApiKey({
+        platform: "win32",
+        spawnSyncFn: () => ({
+          status: 1,
+          stdout: "",
+          stderr: "CredRead failed with Win32 error 1312.",
+        }),
+      }),
+    /Windows Credential Manager: CredRead failed with Win32 error 1312/,
   );
 });
