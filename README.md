@@ -75,6 +75,8 @@ npm test
 ```
 
 `npm link` exposes this checkout as `cribble`; it is not needed after the
-global install. The private-beta operating checklist is in
+global install. `scripts/linux-live-test.sh` exercises the full Linux
+connect/start/pause/resume/uninstall lifecycle against real systemd and a real
+Secret Service keyring inside a disposable Docker container. The private-beta operating checklist is in
 [`docs/BETA_RUNBOOK.md`](docs/BETA_RUNBOOK.md). Visit
 [Cribble.dev](https://cribble.dev) to get started.
