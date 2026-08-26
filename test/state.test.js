@@ -110,7 +110,7 @@ test("withSyncLock recovers an old orphaned lock", async () => {
   }
 });
 
-test("withSyncLock expires an old lock even if its PID was reused", async () => {
+test("withSyncLock never evicts an old lock while its owner is alive", async () => {
   const root = temporaryRoot();
   const filePath = join(root, "sync.lock");
   try {
@@ -122,13 +122,21 @@ test("withSyncLock expires an old lock even if its PID was reused", async () => 
         startedAt: "2026-08-21T00:00:00.000Z",
       }),
     );
-    const result = await withSyncLock(async () => "recovered", {
-      filePath,
-      now: () => new Date("2026-08-22T00:00:00.000Z"),
-      processIsRunningFn: () => true,
-    });
-
-    assert.equal(result, "recovered");
+    let ran = false;
+    await assert.rejects(
+      withSyncLock(
+        async () => {
+          ran = true;
+        },
+        {
+          filePath,
+          now: () => new Date("2026-08-22T00:00:00.000Z"),
+          processIsRunningFn: () => true,
+        },
+      ),
+      SyncAlreadyRunningError,
+    );
+    assert.equal(ran, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

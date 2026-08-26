@@ -3,15 +3,21 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const { mkdtempSync, rmSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { join } = require("node:path");
 
 const {
   KEYCHAIN_ACCOUNT,
   KEYCHAIN_SERVICE,
+  keychainHasApiKey,
   promptAndStoreApiKey,
   readHiddenLine,
   readKeychainApiKey,
+  removeKeychainApiKey,
   resolveApiKey,
   validateApiKey,
+  windowsCredentialPath,
 } = require("../lib/keychain");
 
 const API_KEY = `crib_ag_${"b".repeat(64)}`;
@@ -153,4 +159,95 @@ test("Keychain setup sends the secret over stdin and never puts it in argv", asy
   assert.deepEqual(invocation.options.stdio, ["pipe", "pipe", "pipe"]);
   assert.equal(invocation.options.input, `${API_KEY}\n${API_KEY}\n`);
   assert.equal(invocation.args.some((argument) => argument.startsWith("crib_ag_")), false);
+});
+
+test("Linux credentials use Secret Service without exposing the key in argv", async () => {
+  const calls = [];
+  const spawnSyncFn = (command, args, options) => {
+    calls.push({ command, args, options });
+    if (args[0] === "lookup") return { status: 0, stdout: `${API_KEY}\n`, stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  await promptAndStoreApiKey({
+    platform: "linux",
+    readSecretFn: async () => API_KEY,
+    spawnSyncFn,
+  });
+  assert.equal(
+    readKeychainApiKey({ platform: "linux", spawnSyncFn }),
+    API_KEY,
+  );
+  assert.equal(calls[0].command, "/usr/bin/secret-tool");
+  assert.equal(calls[0].options.input, API_KEY);
+  assert.equal(calls.flatMap((call) => call.args).includes(API_KEY), false);
+});
+
+test("Linux Secret Service failures are not reported as a missing key", () => {
+  assert.throws(
+    () =>
+      readKeychainApiKey({
+        platform: "linux",
+        spawnSyncFn: () => ({
+          status: 1,
+          stdout: "",
+          stderr: "Failed to connect to the Secret Service",
+        }),
+      }),
+    /Could not read the Cribble Agent key/,
+  );
+});
+
+test("Windows credentials are protected with DPAPI before reaching disk", async () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-windows-credential-"));
+  const filePath = join(root, "agent-key.dpapi");
+  const calls = [];
+  const encrypted = "QUJDREVGR0hJSktMTU5PUA==";
+  const spawnSyncFn = (command, args, options) => {
+    calls.push({ command, args, options });
+    const script = args.at(-1);
+    return script.includes("Unprotect")
+      ? { status: 0, stdout: API_KEY, stderr: "" }
+      : { status: 0, stdout: encrypted, stderr: "" };
+  };
+
+  try {
+    await promptAndStoreApiKey({
+      platform: "win32",
+      filePath,
+      readSecretFn: async () => API_KEY,
+      spawnSyncFn,
+    });
+    assert.equal(keychainHasApiKey({ platform: "win32", filePath }), true);
+    assert.equal(
+      readKeychainApiKey({ platform: "win32", filePath, spawnSyncFn }),
+      API_KEY,
+    );
+    assert.equal(
+      calls.every(
+        (call) =>
+          call.command ===
+          "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      ),
+      true,
+    );
+    assert.equal(calls.flatMap((call) => call.args).includes(API_KEY), false);
+    assert.equal(removeKeychainApiKey({ platform: "win32", filePath }), true);
+    assert.equal(keychainHasApiKey({ platform: "win32", filePath }), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows credentials stay in machine-local application data", () => {
+  assert.equal(
+    windowsCredentialPath({
+      homeDirectory: "C:\\Users\\alice",
+      env: {
+        APPDATA: "C:\\Users\\alice\\AppData\\Roaming",
+        LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local",
+      },
+    }),
+    "C:\\Users\\alice\\AppData\\Local\\Cribble\\agent-key.dpapi",
+  );
 });

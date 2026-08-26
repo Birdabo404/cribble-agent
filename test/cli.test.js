@@ -3,11 +3,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { main, parseArgs } = require("../index");
+const { main: unguardedMain, parseArgs } = require("../index");
 const { SyncAlreadyRunningError } = require("../lib/state");
 
 const API_KEY = `crib_ag_${"c".repeat(64)}`;
 const CLIENT_ID = "123e4567-e89b-42d3-a456-426614174000";
+const main = (argv, env, dependencies = {}) =>
+  unguardedMain(argv, env, { platform: "darwin", ...dependencies });
 
 test("parseArgs models the explicit background lifecycle", () => {
   assert.deepEqual(parseArgs(["connect"]), {
@@ -20,6 +22,8 @@ test("parseArgs models the explicit background lifecycle", () => {
     background: false,
     json: false,
     color: undefined,
+    hermesHome: undefined,
+    ccusageTimeoutMs: undefined,
   });
   assert.deepEqual(parseArgs(["start", "--interval=30", "--days", "14"]), {
     command: "background",
@@ -31,6 +35,8 @@ test("parseArgs models the explicit background lifecycle", () => {
     background: false,
     json: false,
     color: undefined,
+    hermesHome: undefined,
+    ccusageTimeoutMs: undefined,
   });
   assert.equal(parseArgs(["pause"]).action, "pause");
   assert.equal(parseArgs(["resume"]).action, "resume");
@@ -45,6 +51,8 @@ test("parseArgs models the explicit background lifecycle", () => {
     background: false,
     json: false,
     color: undefined,
+    hermesHome: undefined,
+    ccusageTimeoutMs: undefined,
   });
   assert.deepEqual(
     parseArgs(["background", "install", "--interval=30", "--days", "14"]),
@@ -58,6 +66,8 @@ test("parseArgs models the explicit background lifecycle", () => {
       background: false,
       json: false,
       color: undefined,
+      hermesHome: undefined,
+      ccusageTimeoutMs: undefined,
     },
   );
   assert.throws(() => parseArgs(["background", "start"]), /Unknown background action/);
@@ -72,6 +82,66 @@ test("parseArgs models the explicit background lifecycle", () => {
   assert.throws(() => parseArgs(["sync", "--endpoint="]), /needs a value/);
   assert.equal(parseArgs(["--version"]).command, "version");
   assert.equal(parseArgs(["sync", "--no-color"]).color, false);
+  assert.deepEqual(
+    parseArgs([
+      "sync",
+      "--background",
+      "--hermes-home",
+      "/one,/two",
+      "--ccusage-timeout-ms",
+      "180000",
+    ]),
+    {
+      command: "sync",
+      action: undefined,
+      days: 7,
+      intervalMinutes: 15,
+      endpoint: undefined,
+      dryRun: false,
+      background: true,
+      json: false,
+      color: undefined,
+      hermesHome: "/one,/two",
+      ccusageTimeoutMs: 180_000,
+    },
+  );
+  assert.throws(
+    () => parseArgs(["sync", "--hermes-home", "/one"]),
+    /reserved for scheduled sync/,
+  );
+});
+
+test("operational commands fail before sync on unknown platforms", async () => {
+  let usageRead = false;
+  let networkCalled = false;
+
+  await assert.rejects(
+    unguardedMain(["sync"], { CRIBBLE_API_KEY: API_KEY }, {
+      platform: "freebsd",
+      loadUsageFn: () => {
+        usageRead = true;
+        return { daily: [] };
+      },
+      postSnapshotWithRetryFn: async () => {
+        networkCalled = true;
+      },
+    }),
+    /supports macOS, Linux, and Windows/,
+  );
+
+  assert.equal(usageRead, false);
+  assert.equal(networkCalled, false);
+});
+
+test("help and version describe cross-platform support", async () => {
+  const output = [];
+  const dependencies = { platform: "win32", log: (value) => output.push(value) };
+
+  await unguardedMain(["help"], {}, dependencies);
+  await unguardedMain(["version"], {}, dependencies);
+
+  assert.match(output[0], /supports macOS, Linux, and Windows/);
+  assert.match(output[1], /^Cribble Agent /);
 });
 
 test("custom endpoints never receive the Agent key from Keychain", async () => {
@@ -83,7 +153,7 @@ test("custom endpoints never receive the Agent key from Keychain", async () => {
         return API_KEY;
       },
     }),
-    /never use the Agent key stored in Keychain/,
+    /never use the Agent key stored in secure storage/,
   );
   assert.equal(keyRead, false);
 });
@@ -299,6 +369,29 @@ test("background install validates the stored Keychain value before scheduling",
     /stored Agent key is invalid/,
   );
   assert.equal(installCalled, false);
+});
+
+test("background install captures explicit collector configuration", async () => {
+  let installedOptions;
+  await main(
+    ["start"],
+    {
+      HERMES_HOME: "/home/alice/.hermes,/archive/hermes",
+      CRIBBLE_CCUSAGE_TIMEOUT_MS: "180000",
+    },
+    {
+      installBackgroundFn: (options) => {
+        installedOptions = options;
+        return options;
+      },
+      keychainHasApiKeyFn: () => true,
+      readKeychainApiKeyFn: () => API_KEY,
+      log: () => {},
+    },
+  );
+
+  assert.equal(installedOptions.hermesHome, "/home/alice/.hermes,/archive/hermes");
+  assert.equal(installedOptions.ccusageTimeoutMs, 180_000);
 });
 
 test("auth removal refuses to break an active background schedule", async () => {

@@ -1,0 +1,4 @@
+{"type":"session","version":1,"id":"prime-session-1","timestamp":"2026-08-25T11:58:00.000Z"}
+{"type":"message","id":"user-1","timestamp":"2026-08-25T11:59:00.000Z","message":{"role":"user","content":"This prompt must never be retained or uploaded."}}
+{"type":"message","id":"assistant-1","timestamp":"2026-08-25T12:00:00.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-6","content":"This response must never be retained or uploaded.","usage":{"input":120,"output":30,"cacheRead":50,"cacheWrite":10,"reasoningTokens":5,"totalTokens":215}}}
+{"type":"message","id":"assistant-1","timestamp":"2026-08-25T12:00:00.000Z","message":{"role":"assistant","provider":"anthropic","model":"claude-sonnet-4-6","usage":{"input":120,"output":30,"cacheRead":50,"cacheWrite":10,"reasoningTokens":5,"totalTokens":215}}}

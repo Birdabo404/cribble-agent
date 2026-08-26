@@ -12,7 +12,7 @@ const {
   buildSnapshot,
   buildWirePayload,
   getOrCreateClientId,
-  main,
+  main: unguardedMain,
   parseArgs,
   parseEndpoint,
   postSnapshot,
@@ -22,6 +22,8 @@ const {
 const NOW = new Date("2026-08-22T00:00:00.000Z");
 const CLIENT_ID = "123e4567-e89b-42d3-a456-426614174000";
 const API_KEY = `crib_ag_${"a".repeat(64)}`;
+const main = (argv, env, dependencies = {}) =>
+  unguardedMain(argv, env, { platform: "darwin", ...dependencies });
 
 test("buildSnapshot filters current ccusage output to the latest requested days", () => {
   const raw = {
@@ -187,6 +189,29 @@ test("buildWirePayload adds client identity, timezone, and provenance", () => {
       },
     ],
   });
+});
+
+test("supplemental usage keeps v1 wire provenance compatible", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [{
+        date: "2026-08-22",
+        agent: "prime-agent",
+        inputTokens: 1,
+      }],
+      sources: ["ccusage", "prime-agent"],
+      timezone: "UTC",
+    },
+    { now: NOW },
+  );
+  const payload = buildWirePayload(snapshot, {
+    clientId: CLIENT_ID,
+    cliVersion: "1.4.0-test",
+  });
+
+  assert.equal(payload.timezone, "UTC");
+  assert.equal(snapshot.source, "cribble-agent");
+  assert.equal(payload.provenance.source, "ccusage");
 });
 
 test("buildWirePayload drops rows whose date cannot be ingested", () => {
@@ -440,6 +465,8 @@ test("parseArgs handles show and sync options", () => {
     background: false,
     json: false,
     color: undefined,
+    hermesHome: undefined,
+    ccusageTimeoutMs: undefined,
   });
   assert.deepEqual(
     parseArgs([
@@ -459,6 +486,8 @@ test("parseArgs handles show and sync options", () => {
       background: false,
       json: false,
       color: undefined,
+      hermesHome: undefined,
+      ccusageTimeoutMs: undefined,
     },
   );
   assert.throws(() => parseArgs(["--days", "0"]), /between 1 and 365/);
@@ -471,12 +500,15 @@ test("a sync dry run can inspect the payload before an endpoint is configured", 
   assert.equal(options.endpoint, undefined);
 });
 
-test("sync dry-run works without a key or network access", async () => {
+test("sync dry-run uses the collector timezone without network access", async () => {
   const output = [];
   let networkCalled = false;
 
   await main(["sync", "--dry-run"], {}, {
-    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+    loadUsageFn: () => ({
+      daily: [{ date: "2026-08-22", inputTokens: 10 }],
+      timezone: "UTC",
+    }),
     getClientIdFn: () => CLIENT_ID,
     timezoneFn: () => "Asia/Manila",
     fetchFn: async () => {
@@ -490,8 +522,11 @@ test("sync dry-run works without a key or network access", async () => {
   assert.equal(output.length, 1);
   const payload = JSON.parse(output[0]);
   assert.equal(payload.clientId, CLIENT_ID);
-  assert.equal(payload.timezone, "Asia/Manila");
-  assert.deepEqual(payload.provenance, { source: "ccusage", cliVersion: "1.3.0" });
+  assert.equal(payload.timezone, "UTC");
+  assert.deepEqual(payload.provenance, {
+    source: "ccusage",
+    cliVersion: "1.4.0-beta.1",
+  });
 });
 
 test("parseEndpoint only allows valid HTTP endpoints", () => {
