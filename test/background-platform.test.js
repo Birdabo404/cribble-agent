@@ -4,12 +4,14 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 
 const {
   backgroundStatus,
@@ -38,6 +40,10 @@ test("Linux systemd units schedule sync without embedding credentials", () => {
   assert.match(units.service, /sync/);
   assert.match(units.service, /--background/);
   assert.match(units.service, /node%%u/);
+  // WorkingDirectory= is a literal path setting: systemd does not parse
+  // quotes there, and a quoted value is a fatal unit error that breaks
+  // `cribble start` on every Linux machine.
+  assert.match(units.service, /^WorkingDirectory=\/opt\/cribble agent$/m);
   assert.match(units.service, /--hermes-home/);
   assert.match(units.service, /\/home\/alice\/\.hermes/);
   assert.match(units.service, /--ccusage-timeout-ms/);
@@ -163,6 +169,83 @@ test("failed Linux initial start disables the timer and removes new units", () =
       ),
       true,
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Linux WorkingDirectory escapes percent specifiers without quoting", () => {
+  const units = systemdUnits({
+    nodePath: "/usr/bin/node",
+    entryPath: "/opt/100% cribble/index.js",
+    intervalMinutes: 15,
+    days: 7,
+  });
+  assert.match(units.service, /^WorkingDirectory=\/opt\/100%% cribble$/m);
+});
+
+test("Linux rollback tolerates units systemd never loaded", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-linux-rollback-"));
+  const spawnSyncFn = (_command, args) => {
+    if (args[1] === "enable") {
+      return { status: 1, stdout: "", stderr: "Job failed. See \"journalctl -xe\" for details." };
+    }
+    if (args[1] === "stop") {
+      return {
+        status: 5,
+        stdout: "",
+        stderr: "Failed to stop dev.cribble.agent.sync.service: Unit dev.cribble.agent.sync.service not loaded.",
+      };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  try {
+    assert.throws(
+      () =>
+        installBackground({
+          platform: "linux",
+          homeDirectory: root,
+          env: {},
+          entryPath: join(__dirname, "..", "index.js"),
+          nodePath: process.execPath,
+          spawnSyncFn,
+        }),
+      (error) => {
+        assert.match(error.message, /Installing Linux background sync failed/);
+        // Cleaning up a service that never loaded is not a rollback failure
+        // and must not bury the actionable install error.
+        assert.doesNotMatch(error.message, /Rollback also failed/);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Linux uninstall recovers when the unit definition was fatally invalid", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-linux-uninstall-"));
+  const paths = linuxBackgroundPaths(root, {});
+  const spawnSyncFn = (_command, args) => {
+    if (args[1] === "disable" || args[1] === "stop") {
+      return { status: 5, stdout: "", stderr: `Unit ${args.at(-1)} not loaded.` };
+    }
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  try {
+    mkdirSync(dirname(paths.servicePath), { recursive: true });
+    writeFileSync(paths.servicePath, "[Service]\nWorkingDirectory=\"/broken\"\n");
+    writeFileSync(paths.timerPath, "[Timer]\n");
+
+    const result = uninstallBackground({
+      platform: "linux",
+      homeDirectory: root,
+      env: {},
+      spawnSyncFn,
+    });
+    assert.equal(result.removed, true);
+    assert.equal(existsSync(paths.servicePath), false);
+    assert.equal(existsSync(paths.timerPath), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
