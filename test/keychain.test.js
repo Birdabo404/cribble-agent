@@ -144,6 +144,32 @@ test("hidden Agent-key input restores terminal state when input ends", async () 
   assert.equal(input.paused, true);
 });
 
+test("hidden Agent-key input releases a never-started stdin so the CLI can exit", async () => {
+  class FreshStdin extends EventEmitter {
+    isTTY = true;
+    isRaw = false;
+    // A fresh process.stdin has never started flowing, and isPaused() is
+    // false in that state — pausing must not depend on it.
+    readableFlowing = null;
+
+    isPaused() { return this.readableFlowing === false; }
+    pause() { this.readableFlowing = false; return this; }
+    resume() { this.readableFlowing = true; return this; }
+    setRawMode(enabled) { this.isRaw = enabled; }
+  }
+
+  const input = new FreshStdin();
+  const output = { isTTY: true, write: () => {} };
+  const reading = readHiddenLine({ input, output });
+  input.emit("data", `${API_KEY}\n`);
+
+  assert.equal(await reading, API_KEY);
+  // A still-flowing stdin keeps the process event loop referenced forever:
+  // `cribble connect` would hang after a successful save until Ctrl+C.
+  assert.equal(input.readableFlowing, false);
+  assert.equal(input.isRaw, false);
+});
+
 test("Keychain setup sends the secret over stdin and never puts it in argv", async () => {
   let invocation;
   await promptAndStoreApiKey({
