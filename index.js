@@ -39,6 +39,8 @@ const {
   renderSnapshot,
 } = require("./lib/usage");
 const { safeText } = require("./lib/safety");
+const { requireSupportedPlatform } = require("./lib/platform");
+const { capturedCollectorOptions } = require("./lib/collector-options");
 const {
   ANSI,
   animationEnabled,
@@ -115,6 +117,8 @@ function parseArgs(argv) {
     background: false,
     json: false,
     color: undefined,
+    hermesHome: undefined,
+    ccusageTimeoutMs: undefined,
   };
   const seen = new Set();
 
@@ -134,6 +138,17 @@ function parseArgs(argv) {
     } else if (arg === "--no-color") {
       options.color = false;
       seen.add("color");
+    } else if (arg === "--hermes-home") {
+      options.hermesHome = readOptionValue(args, index, "--hermes-home");
+      seen.add("hermes-home");
+      index += 1;
+    } else if (arg === "--ccusage-timeout-ms") {
+      options.ccusageTimeoutMs = parseWholeNumber(
+        readOptionValue(args, index, "--ccusage-timeout-ms"),
+        "--ccusage-timeout-ms",
+      );
+      seen.add("ccusage-timeout-ms");
+      index += 1;
     } else if (arg === "--days") {
       seen.add("days");
       options.days = parseWholeNumber(readOptionValue(args, index, "--days"), "--days");
@@ -165,6 +180,14 @@ function parseArgs(argv) {
   if (options.days < 1 || options.days > 365) {
     throw new Error("--days must be a whole number between 1 and 365.");
   }
+  if (
+    options.ccusageTimeoutMs !== undefined &&
+    (options.ccusageTimeoutMs < 1_000 || options.ccusageTimeoutMs > 15 * 60_000)
+  ) {
+    throw new Error(
+      "--ccusage-timeout-ms must be a whole number between 1000 and 900000.",
+    );
+  }
   if (options.dryRun && command !== "sync") {
     throw new Error("--dry-run can only be used with sync.");
   }
@@ -188,6 +211,12 @@ function parseArgs(argv) {
     (command !== "background" || action !== "install")
   ) {
     throw new Error("--endpoint can only be used with sync or background install.");
+  }
+  if (
+    (seen.has("hermes-home") || seen.has("ccusage-timeout-ms")) &&
+    (command !== "sync" || !options.background)
+  ) {
+    throw new Error("Collector service options are reserved for scheduled sync runs.");
   }
 
   return options;
@@ -232,10 +261,16 @@ General options:
 Environment:
   CRIBBLE_SYNC_URL   Backend endpoint used by manual sync
   CRIBBLE_API_KEY    Development/CI override for the Agent key
+  CRIBBLE_WSL_MODE   Windows collection mode (default: wsl-first)
   CCUSAGE_BIN        Optional path to a ccusage executable
+  HERMES_HOME        Optional Hermes root, or comma-separated roots
+  CRIBBLE_CCUSAGE_TIMEOUT_MS  ccusage timeout in ms (default: 120000)
+  PRIME_AGENT_HOME   Optional Prime Agent home directory
+  PRIME_AGENT_DIR    Optional Prime Agent data directory
 
-Automatic sync is opt-in and macOS-only. Run \`cribble connect\` before
-\`cribble start\`. The Agent key is never written to the LaunchAgent.`;
+Cribble Agent supports macOS, Linux, and Windows. Automatic sync is opt-in.
+Run \`cribble connect\` before \`cribble start\`. The Agent key is never
+written to a background-service definition.`;
 }
 
 function asIso(nowFn) {
@@ -324,6 +359,7 @@ async function main(
     mergeSyncStateFn: mergeSyncState,
     nowFn: () => new Date(),
     pauseBackgroundFn: pauseBackground,
+    platform: process.platform,
     postSnapshotWithRetryFn: postSnapshotWithRetry,
     promptAndStoreApiKeyFn: promptAndStoreApiKey,
     readKeychainApiKeyFn: readKeychainApiKey,
@@ -352,6 +388,14 @@ async function main(
     return;
   }
 
+  requireSupportedPlatform(deps.platform);
+  const credentialStore =
+    deps.platform === "darwin"
+      ? "macOS Keychain"
+      : deps.platform === "linux"
+        ? "Linux Secret Service"
+        : "Windows protected storage";
+
   if (options.command === "auth") {
     if (options.action === "set") {
       await deps.promptAndStoreApiKeyFn();
@@ -369,7 +413,7 @@ async function main(
         throw error;
       }
       deps.log(
-        `${renderNotice("Cribble Agent key saved securely in macOS Keychain.", { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
+        `${renderNotice(`Cribble Agent key saved securely in ${credentialStore}.`, { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
       );
       return;
     }
@@ -379,8 +423,8 @@ async function main(
         const service = deps.backgroundStatusFn();
         activeBackground = service.installed && !service.disabled;
       } catch {
-        // Key removal remains usable on non-macOS test/development systems
-        // where background-service inspection is unavailable.
+        // Key removal remains usable on test/development systems where
+        // background-service inspection is unavailable.
       }
       if (activeBackground) {
         throw new Error(
@@ -390,7 +434,7 @@ async function main(
       const removed = deps.removeKeychainApiKeyFn();
       deps.log(
         removed
-          ? renderNotice("Cribble Agent key removed from Keychain.", { color: outputColor })
+          ? renderNotice("Cribble Agent key removed from secure storage.", { color: outputColor })
           : renderNotice("No Agent key was stored.", { color: outputColor, kind: "warning" }),
       );
       return;
@@ -402,7 +446,7 @@ async function main(
     if (!deps.readKeychainApiKeyFn()) {
       throw new Error("The stored Agent key is unreadable. Run `cribble connect` again.");
     }
-    deps.log("Cribble Agent key is configured in macOS Keychain.");
+    deps.log(`Cribble Agent key is configured in ${credentialStore}.`);
     return;
   }
 
@@ -424,6 +468,7 @@ async function main(
         intervalMinutes: options.intervalMinutes,
         days: options.days,
         endpoint: options.endpoint,
+        ...capturedCollectorOptions(env),
       });
       deps.log(`${renderNotice(
         `Background sync is on: every ${installed.intervalMinutes} minutes, latest ${installed.days} day${installed.days === 1 ? "" : "s"}.`,
@@ -483,11 +528,11 @@ async function main(
       try {
         if (deps.keychainHasApiKeyFn()) {
           credential = deps.readKeychainApiKeyFn()
-            ? "macOS Keychain"
-            : "invalid macOS Keychain key";
+            ? credentialStore
+            : `invalid ${credentialStore} key`;
         }
       } catch {
-        credential = "unreadable macOS Keychain key";
+        credential = `unreadable ${credentialStore} key`;
       }
     }
     let service = "not installed";
@@ -508,9 +553,13 @@ async function main(
   }
 
   if (options.command === "show") {
-    const snapshot = buildSnapshot(deps.loadUsageFn(env), {
+    const now = deps.nowFn();
+    const snapshot = buildSnapshot(deps.loadUsageFn(env, {
       days: options.days,
-      now: deps.nowFn(),
+      now,
+    }), {
+      days: options.days,
+      now,
     });
     deps.log(
       options.json
@@ -521,15 +570,21 @@ async function main(
   }
 
   const preparePayload = () => {
-    const snapshot = buildSnapshot(deps.loadUsageFn(env), {
+    const now = deps.nowFn();
+    const snapshot = buildSnapshot(deps.loadUsageFn(env, {
+      days: options.days,
+      now,
+      hermesHome: options.hermesHome,
+      timeoutMs: options.ccusageTimeoutMs,
+    }), {
       // Filter malformed dates before applying the requested wire window so
       // an "unknown" source row cannot displace a valid usage day.
       days: Number.MAX_SAFE_INTEGER,
-      now: deps.nowFn(),
+      now,
     });
     return buildWirePayload(snapshot, {
       clientId: deps.getClientIdFn(),
-      timezone: deps.timezoneFn(),
+      timezone: snapshot.timezone ?? deps.timezoneFn(),
       days: options.days,
     });
   };
@@ -544,7 +599,7 @@ async function main(
   const parsedEndpoint = parseEndpoint(endpoint);
   if (!isProductionEndpoint(parsedEndpoint) && !env.CRIBBLE_API_KEY) {
     throw new Error(
-      "Custom sync endpoints never use the Agent key stored in Keychain. Set CRIBBLE_API_KEY explicitly for this development sync.",
+      "Custom sync endpoints never use the Agent key stored in secure storage. Set CRIBBLE_API_KEY explicitly for this development sync.",
     );
   }
   const endpointLabel = safeEndpointLabel(parsedEndpoint);

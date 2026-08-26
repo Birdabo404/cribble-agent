@@ -33,15 +33,17 @@ outside the repo.
 
 3. Commit and push a clean tree. Never include local usage data, Agent keys, or
    generated credentials in the package.
-4. Create and push an annotated `vX.Y.Z` tag that exactly matches the package
-   version.
+4. Create and push an annotated version tag (for example, `v1.4.0-beta.1`) that
+   exactly matches the package version.
 5. Manually run the `Publish npm package` GitHub workflow and select that tag.
-6. Verify `latest`, integrity, installation, and `cribble --version` directly
-   from the public npm registry.
+6. Verify the selected npm lane, integrity, installation, and `cribble
+   --version` directly from the public npm registry. Stable versions publish
+   to `latest`; prerelease versions publish to `beta`.
 
 The workflow refuses branches and mismatched tags, uses a GitHub-hosted Node 24
 runner, reruns tests and audits, and publishes through short-lived OIDC. GitHub
 trusted publishing adds npm provenance automatically for this public package.
+The explicit dist-tag selection keeps a prerelease from replacing `latest`.
 
 Homebrew distribution is intentionally deferred until the Phase 7 personal
 token dashboard is complete.

@@ -30,6 +30,8 @@ test("launchAgentPlist schedules an opt-in low-priority sync without secrets", (
     intervalMinutes: 15,
     days: 30,
     endpoint: "https://cribble.dev/api/agent/usage",
+    hermesHome: "/Users/test/.hermes,/Volumes/hermes & archive",
+    ccusageTimeoutMs: 180_000,
   });
 
   assert.match(plist, new RegExp(`<string>${BACKGROUND_LABEL}</string>`));
@@ -39,6 +41,10 @@ test("launchAgentPlist schedules an opt-in low-priority sync without secrets", (
   assert.match(plist, /<integer>30<\/integer>/);
   assert.match(plist, /<integer>45<\/integer>/);
   assert.match(plist, /<string>Background<\/string>/);
+  assert.match(plist, /<string>--hermes-home<\/string>/);
+  assert.match(plist, /\/Users\/test\/\.hermes,\/Volumes\/hermes &amp; archive/);
+  assert.match(plist, /<string>--ccusage-timeout-ms<\/string>/);
+  assert.match(plist, /<string>180000<\/string>/);
   assert.doesNotMatch(plist, /RunAtLoad/);
   assert.doesNotMatch(plist, /CRIBBLE_API_KEY|crib_ag_/);
 });
