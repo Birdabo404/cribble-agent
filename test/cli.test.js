@@ -353,7 +353,7 @@ test("status reports credential, service, and last sync without reading usage", 
   });
 
   assert.equal(usageRead, false);
-  assert.match(output[0], /Agent key\s+macOS Keychain/);
+  assert.match(output[0], /Agent key\s+(macOS Keychain|Linux keyring)/);
   assert.match(output[0], /Background\s+paused/);
   assert.match(output[0], /1 inserted, 2 replaced, 3 unchanged/);
 });

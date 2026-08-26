@@ -11,6 +11,7 @@ const {
   uninstallBackground,
 } = require("./lib/background");
 const {
+  credentialStoreLabel,
   keychainHasApiKey,
   promptAndStoreApiKey,
   readKeychainApiKey,
@@ -234,8 +235,9 @@ Environment:
   CRIBBLE_API_KEY    Development/CI override for the Agent key
   CCUSAGE_BIN        Optional path to a ccusage executable
 
-Automatic sync is opt-in and macOS-only. Run \`cribble connect\` before
-\`cribble start\`. The Agent key is never written to the LaunchAgent.`;
+Automatic sync is opt-in on macOS and Linux. Run \`cribble connect\` before
+\`cribble start\`. The Agent key is never written to the LaunchAgent or
+systemd unit.`;
 }
 
 function asIso(nowFn) {
@@ -369,7 +371,7 @@ async function main(
         throw error;
       }
       deps.log(
-        `${renderNotice("Cribble Agent key saved securely in macOS Keychain.", { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
+        `${renderNotice(`Cribble Agent key saved securely in the ${credentialStoreLabel()}.`, { color: outputColor })}\nNext: run \`cribble sync\` to verify it and send your first snapshot.`,
       );
       return;
     }
@@ -390,7 +392,7 @@ async function main(
       const removed = deps.removeKeychainApiKeyFn();
       deps.log(
         removed
-          ? renderNotice("Cribble Agent key removed from Keychain.", { color: outputColor })
+          ? renderNotice(`Cribble Agent key removed from the ${credentialStoreLabel()}.`, { color: outputColor })
           : renderNotice("No Agent key was stored.", { color: outputColor, kind: "warning" }),
       );
       return;
@@ -402,7 +404,7 @@ async function main(
     if (!deps.readKeychainApiKeyFn()) {
       throw new Error("The stored Agent key is unreadable. Run `cribble connect` again.");
     }
-    deps.log("Cribble Agent key is configured in macOS Keychain.");
+    deps.log(`Cribble Agent key is configured in the ${credentialStoreLabel()}.`);
     return;
   }
 
@@ -480,14 +482,13 @@ async function main(
         credential = "invalid environment override";
       }
     } else {
+      const store = credentialStoreLabel();
       try {
         if (deps.keychainHasApiKeyFn()) {
-          credential = deps.readKeychainApiKeyFn()
-            ? "macOS Keychain"
-            : "invalid macOS Keychain key";
+          credential = deps.readKeychainApiKeyFn() ? store : `invalid ${store} key`;
         }
       } catch {
-        credential = "unreadable macOS Keychain key";
+        credential = `unreadable ${store} key`;
       }
     }
     let service = "not installed";

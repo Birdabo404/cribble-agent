@@ -66,6 +66,53 @@ jobs:
       - name: Smoke-test the CLI entry point
         run: node index.js --version
 
+  linux:
+    name: Linux smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install libsecret tools
+        run: sudo apt-get update && sudo apt-get install -y libsecret-tools
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Run tests
+        run: npm test
+      - name: Smoke-test the CLI entry point
+        run: node index.js --version
+      # Hosted runners have no unlocked keyring or user systemd bus, so assert
+      # the APIs either answer or fail with their actionable guidance instead
+      # of crashing.
+      - name: Smoke-test Linux credential and background APIs
+        run: |
+          node -e "
+            const k = require('./lib/keychain');
+            try { console.log('credential-exists', k.keychainHasApiKey()); }
+            catch (error) {
+              if (!/keyring|secret-tool/i.test(error.message)) throw error;
+              console.log('credential-guidance-ok:', error.message);
+            }
+          "
+          node -e "
+            const b = require('./lib/background');
+            try {
+              const s = b.backgroundStatus();
+              if (s.installed) throw new Error('unexpected leftover systemd units');
+              console.log('background-status', JSON.stringify(s));
+            } catch (error) {
+              if (!/systemd|systemctl/i.test(error.message)) throw error;
+              console.log('background-guidance-ok:', error.message);
+            }
+          "
+
   supply-chain:
     name: Supply-chain checks
     runs-on: ubuntu-latest

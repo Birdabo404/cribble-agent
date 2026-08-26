@@ -15,13 +15,31 @@ const { join } = require("node:path");
 
 const {
   BACKGROUND_LABEL,
+  backgroundStatus,
   installBackground,
   launchAgentPath,
   launchAgentPlist,
   pauseBackground,
   resolveStableNodePath,
   resumeBackground,
+  systemdServicePath,
+  systemdServiceUnit,
+  systemdTimerPath,
+  systemdTimerUnit,
+  uninstallBackground,
 } = require("../lib/background");
+
+const SYSTEMCTL = "/usr/bin/systemctl";
+
+function linuxOptions(root, spawnSyncFn) {
+  return {
+    homeDirectory: root,
+    env: {},
+    platform: "linux",
+    systemctlPath: SYSTEMCTL,
+    spawnSyncFn,
+  };
+}
 
 test("launchAgentPlist schedules an opt-in low-priority sync without secrets", () => {
   const plist = launchAgentPlist({
@@ -289,5 +307,255 @@ test("pauseBackground accepts an already stopped service", () => {
           ? { status: 3, stdout: "", stderr: "Boot-out failed: No such process" }
           : { status: 0, stdout: "", stderr: "" },
     }),
+  );
+});
+
+test("systemdServiceUnit runs a low-priority background sync without secrets", () => {
+  const unit = systemdServiceUnit({
+    nodePath: "/usr/bin/node",
+    entryPath: "/home/test/cribble agent/index.js",
+    intervalMinutes: 15,
+    days: 30,
+    endpoint: "https://cribble.dev/api/agent/usage",
+  });
+
+  assert.match(unit, /Type=oneshot/);
+  assert.match(
+    unit,
+    /ExecStart=\/usr\/bin\/node "\/home\/test\/cribble agent\/index\.js" sync --background --days 30/,
+  );
+  assert.match(unit, /WorkingDirectory=\/home\/test\/cribble agent/);
+  assert.match(unit, /UMask=0077/);
+  assert.match(unit, /IOSchedulingClass=idle/);
+  assert.doesNotMatch(unit, /CRIBBLE_API_KEY|crib_ag_/);
+});
+
+test("systemd units escape percent specifiers and reject line breaks", () => {
+  const unit = systemdServiceUnit({
+    nodePath: "/opt/100%/node",
+    entryPath: "/tmp/index.js",
+    intervalMinutes: 15,
+    days: 7,
+  });
+  assert.match(unit, /ExecStart=\/opt\/100%%\/node/);
+
+  assert.throws(
+    () =>
+      systemdServiceUnit({
+        nodePath: "/usr/bin/node",
+        entryPath: "/tmp/evil\nExecStart=oops/index.js",
+        intervalMinutes: 15,
+        days: 7,
+      }),
+    /line breaks/,
+  );
+});
+
+test("systemdTimerUnit maps supported intervals onto the hour", () => {
+  const unit = systemdTimerUnit({ intervalMinutes: 20, days: 7 });
+  assert.match(unit, /OnCalendar=\*-\*-\* \*:0\/20:00/);
+  assert.match(unit, /WantedBy=timers\.target/);
+  assert.throws(() => systemdTimerUnit({ intervalMinutes: 7, days: 7 }), /must be one of/);
+});
+
+test("installBackground on Linux writes units, reloads, enables, and kickstarts", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-systemd-"));
+  const commands = [];
+  const spawnSyncFn = (command, args) => {
+    commands.push([command, ...args]);
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    const result = installBackground({
+      ...linuxOptions(root, spawnSyncFn),
+      nodePath: process.execPath,
+      entryPath: join(__dirname, "..", "index.js"),
+      intervalMinutes: 15,
+      days: 7,
+    });
+
+    assert.equal(result.filePath, systemdTimerPath(root, {}));
+    assert.match(readFileSync(systemdServicePath(root, {}), "utf8"), /--background/);
+    assert.match(readFileSync(result.filePath, "utf8"), /OnCalendar=\*-\*-\* \*:0\/15:00/);
+    assert.deepEqual(
+      commands.map((command) => command.slice(0, 3)),
+      [
+        [SYSTEMCTL, "--user", "daemon-reload"],
+        [SYSTEMCTL, "--user", "enable"],
+        [SYSTEMCTL, "--user", "start"],
+        [SYSTEMCTL, "--user", "start"],
+      ],
+    );
+    assert.deepEqual(commands.at(-1).slice(2), [
+      "start",
+      "--no-block",
+      `${BACKGROUND_LABEL}.service`,
+    ]);
+    assert.equal(commands.flat().some((value) => String(value).startsWith("crib_ag_")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("installBackground on Linux removes new units when systemctl cannot arm them", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-systemd-"));
+  const spawnSyncFn = (command, args) => {
+    if (args[1] === "enable") return { status: 1, stdout: "", stderr: "enable failed" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    assert.throws(
+      () =>
+        installBackground({
+          ...linuxOptions(root, spawnSyncFn),
+          nodePath: process.execPath,
+          entryPath: join(__dirname, "..", "index.js"),
+        }),
+      /Enabling background sync failed: enable failed/,
+    );
+    assert.equal(existsSync(systemdServicePath(root, {})), false);
+    assert.equal(existsSync(systemdTimerPath(root, {})), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("pauseBackground on Linux disables the timer and requires an install", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-systemd-"));
+  const commands = [];
+  const spawnSyncFn = (command, args) => {
+    commands.push([command, ...args]);
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    assert.throws(
+      () => pauseBackground(linuxOptions(root, spawnSyncFn)),
+      /not installed/,
+    );
+
+    mkdirSync(join(root, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(systemdTimerPath(root, {}), "[Timer]\n");
+    pauseBackground(linuxOptions(root, spawnSyncFn));
+    assert.deepEqual(
+      commands.map((command) => command.slice(2)),
+      [
+        ["disable", "--now", `${BACKGROUND_LABEL}.timer`],
+        ["stop", `${BACKGROUND_LABEL}.service`],
+      ],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resumeBackground on Linux re-arms the timer and queues a sync", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-systemd-"));
+  const commands = [];
+  const spawnSyncFn = (command, args) => {
+    commands.push([command, ...args]);
+    if (args[1] === "is-enabled") return { status: 1, stdout: "disabled\n", stderr: "" };
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    assert.throws(
+      () => resumeBackground(linuxOptions(root, spawnSyncFn)),
+      /not installed/,
+    );
+
+    mkdirSync(join(root, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(systemdTimerPath(root, {}), "[Timer]\n");
+    resumeBackground(linuxOptions(root, spawnSyncFn));
+    assert.deepEqual(
+      commands.map((command) => command[2]),
+      ["is-enabled", "daemon-reload", "enable", "start", "start"],
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("uninstallBackground on Linux stops the timer and removes both units", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-systemd-"));
+  const commands = [];
+  const spawnSyncFn = (command, args) => {
+    commands.push([command, ...args]);
+    return { status: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    mkdirSync(join(root, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(systemdServicePath(root, {}), "[Service]\n");
+    writeFileSync(systemdTimerPath(root, {}), "[Timer]\n");
+
+    const result = uninstallBackground(linuxOptions(root, spawnSyncFn));
+    assert.equal(result.removed, true);
+    assert.equal(existsSync(systemdServicePath(root, {})), false);
+    assert.equal(existsSync(systemdTimerPath(root, {})), false);
+    assert.deepEqual(
+      commands.map((command) => command[2]),
+      ["disable", "stop", "daemon-reload"],
+    );
+
+    const second = uninstallBackground(linuxOptions(root, spawnSyncFn));
+    assert.equal(second.removed, false);
+    assert.equal(commands.length, 3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("backgroundStatus on Linux reports installed, active, and paused states", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-systemd-"));
+
+  try {
+    const empty = backgroundStatus(
+      linuxOptions(root, () => ({ status: 1, stdout: "", stderr: "" })),
+    );
+    assert.deepEqual(empty, {
+      installed: false,
+      loaded: false,
+      disabled: false,
+      filePath: systemdTimerPath(root, {}),
+    });
+
+    mkdirSync(join(root, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(systemdTimerPath(root, {}), "[Timer]\n");
+
+    const active = backgroundStatus(
+      linuxOptions(root, () => ({ status: 0, stdout: "enabled\n", stderr: "" })),
+    );
+    assert.deepEqual(active, {
+      installed: true,
+      loaded: true,
+      disabled: false,
+      filePath: systemdTimerPath(root, {}),
+    });
+
+    const paused = backgroundStatus(
+      linuxOptions(root, () => ({ status: 1, stdout: "disabled\n", stderr: "" })),
+    );
+    assert.deepEqual(paused, {
+      installed: true,
+      loaded: false,
+      disabled: true,
+      filePath: systemdTimerPath(root, {}),
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("systemd unit paths honor XDG_CONFIG_HOME", () => {
+  assert.equal(
+    systemdTimerPath("/home/test", { XDG_CONFIG_HOME: "/home/test/xdg" }),
+    `/home/test/xdg/systemd/user/${BACKGROUND_LABEL}.timer`,
+  );
+  assert.equal(
+    systemdServicePath("/home/test", {}),
+    `/home/test/.config/systemd/user/${BACKGROUND_LABEL}.service`,
   );
 });
