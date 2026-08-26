@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { dirname, resolve } = require("node:path");
 
 const {
   collectorEnvironment,
@@ -9,6 +10,14 @@ const {
   loadUsage,
   resolveBundledBinary,
 } = require("../lib/source");
+
+function fakeCcusageInstall() {
+  const packagePath = resolve("/app/node_modules/ccusage/package.json");
+  return {
+    packagePath,
+    binaryPath: resolve(dirname(packagePath), "src", "cli.js"),
+  };
+}
 
 test("loadUsage never downloads an unpinned collector at runtime", () => {
   let executed = false;
@@ -33,13 +42,14 @@ test("loadUsage never downloads an unpinned collector at runtime", () => {
 });
 
 test("resolveBundledBinary supports npm-hoisted dependencies", () => {
-  const binary = resolveBundledBinary("/app/node_modules/cribble-agent", {
-    existsSyncFn: (filePath) => filePath === "/app/node_modules/ccusage/src/cli.js",
+  const { packagePath, binaryPath } = fakeCcusageInstall();
+  const binary = resolveBundledBinary(resolve("/app/node_modules/cribble-agent"), {
+    existsSyncFn: (filePath) => filePath === binaryPath,
     readFileSyncFn: () => JSON.stringify({ bin: { ccusage: "./src/cli.js" } }),
-    requireResolveFn: () => "/app/node_modules/ccusage/package.json",
+    requireResolveFn: () => packagePath,
   });
 
-  assert.equal(binary, "/app/node_modules/ccusage/src/cli.js");
+  assert.equal(binary, binaryPath);
 });
 
 test("loadUsage invokes the configured collector without a shell", () => {
@@ -185,14 +195,15 @@ test("loadUsage refuses a PATH-resolved CCUSAGE_BIN override", () => {
 
 test("loadUsage invokes the bundled collector through an absolute Node path", () => {
   let invocation;
+  const { packagePath, binaryPath } = fakeCcusageInstall();
   const result = loadUsage(
     {},
     {
       timezone: "UTC",
-      baseDirectory: "/app/cribble-agent",
-      existsSyncFn: (filePath) => filePath === "/app/node_modules/ccusage/src/cli.js",
+      baseDirectory: resolve("/app/cribble-agent"),
+      existsSyncFn: (filePath) => filePath === binaryPath,
       readFileSyncFn: () => JSON.stringify({ bin: { ccusage: "./src/cli.js" } }),
-      requireResolveFn: () => "/app/node_modules/ccusage/package.json",
+      requireResolveFn: () => packagePath,
       nodePath: "/absolute/node",
       execFileSyncFn: (command, args, options) => {
         invocation = { command, args, options };
@@ -204,7 +215,7 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
   assert.deepEqual(result, { daily: [], timezone: "UTC" });
   assert.equal(invocation.command, "/absolute/node");
   assert.deepEqual(invocation.args, [
-    "/app/node_modules/ccusage/src/cli.js",
+    binaryPath,
     "daily",
     "--json",
     "--timezone",
@@ -214,17 +225,18 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
 
 test("loadUsage never passes a Windows npm shell shim to node.exe", () => {
   let invocation;
+  const { packagePath, binaryPath } = fakeCcusageInstall();
+  const shellShimPath = resolve(dirname(packagePath), "..", ".bin", "ccusage");
   loadUsage(
     {},
     {
       platform: "win32",
       timezone: "UTC",
-      baseDirectory: "/app/node_modules/cribble-agent",
+      baseDirectory: resolve("/app/node_modules/cribble-agent"),
       existsSyncFn: (filePath) =>
-        filePath.endsWith("node_modules/.bin/ccusage") ||
-        filePath === "/app/node_modules/ccusage/src/cli.js",
+        filePath === shellShimPath || filePath === binaryPath,
       readFileSyncFn: () => JSON.stringify({ bin: { ccusage: "./src/cli.js" } }),
-      requireResolveFn: () => "/app/node_modules/ccusage/package.json",
+      requireResolveFn: () => packagePath,
       nodePath: "C:\\Program Files\\nodejs\\node.exe",
       execFileSyncFn: (command, args) => {
         invocation = { command, args };
@@ -236,7 +248,7 @@ test("loadUsage never passes a Windows npm shell shim to node.exe", () => {
 
   assert.equal(invocation.command, "C:\\Program Files\\nodejs\\node.exe");
   assert.deepEqual(invocation.args, [
-    "/app/node_modules/ccusage/src/cli.js",
+    binaryPath,
     "daily",
     "--json",
     "--timezone",

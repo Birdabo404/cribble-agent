@@ -49,7 +49,13 @@ test("Linux systemd units schedule sync without embedding credentials", () => {
     linuxBackgroundPaths("/home/alice", {
       XDG_CONFIG_HOME: "relative",
     }).timerPath,
-    "/home/alice/.config/systemd/user/dev.cribble.agent.sync.timer",
+    join(
+      "/home/alice",
+      ".config",
+      "systemd",
+      "user",
+      "dev.cribble.agent.sync.timer",
+    ),
   );
 });
 

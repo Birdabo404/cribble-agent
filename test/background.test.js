@@ -98,7 +98,9 @@ test("installBackground validates, loads, and starts the generated service", () 
   }
 });
 
-test("resolveStableNodePath prefers a PATH shim targeting the running Node binary", () => {
+test("resolveStableNodePath prefers a PATH shim targeting the running Node binary", {
+  skip: process.platform === "win32",
+}, () => {
   const targets = new Map([
     ["/opt/homebrew/Cellar/node/25.2.1/bin/node", "/opt/homebrew/Cellar/node/25.2.1/bin/node"],
     ["/opt/homebrew/bin/node", "/opt/homebrew/Cellar/node/25.2.1/bin/node"],
