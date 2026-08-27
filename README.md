@@ -60,8 +60,13 @@ session files; incomplete or unreadable scans fail instead of uploading a lower
 replacement total.
 
 Set `HERMES_HOME` to one Hermes root, or to ccusage's comma-separated list of
-roots, when named Hermes profiles live outside the default location. Cribble
-passes the explicit value through unchanged while continuing to remove unrelated
+roots, when named Hermes profiles live outside the default location. To collect
+multiple Claude Code profiles, set `CRIBBLE_CLAUDE_CONFIG_DIRS` to a
+comma-separated list of absolute, existing profile directories. Cribble scans the
+normal profile once for all supported agents, then adds only Claude-labeled rows
+from each additional profile, avoiding duplicate Codex or other-agent totals.
+Invalid, duplicate, or failed profile scans are handled fail-closed. Cribble
+passes explicit collector values through while continuing to remove unrelated
 API keys and credentials from the collector environment. Collection is bounded to the requested `--days` window, or the 365-day maximum
 selected by `--all`, and a 120-second timeout. `--all` is available for
 foreground display and sync; scheduled background sync keeps its explicit

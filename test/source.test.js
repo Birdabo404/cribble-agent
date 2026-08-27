@@ -5,11 +5,43 @@ const assert = require("node:assert/strict");
 const { dirname, resolve } = require("node:path");
 
 const {
+  claudeConfigDirectories,
   collectorEnvironment,
   collectionSince,
   loadUsage,
   resolveBundledBinary,
 } = require("../lib/source");
+
+test("Claude profile directories are validated and deduplicated by real path", () => {
+  const canonical = new Map([["/profiles/home", "/data/home"], ["/profiles/home-link", "/data/home"], ["/profiles/work", "/data/work"]]);
+  const options = { existsSyncFn: (path) => canonical.has(path), realpathSyncFn: (path) => canonical.get(path), statSyncFn: () => ({ isDirectory: () => true }) };
+  assert.deepEqual(claudeConfigDirectories(" /profiles/home,/profiles/home-link,/profiles/work ", options), ["/data/home", "/data/work"]);
+  assert.throws(() => claudeConfigDirectories("relative", options), /absolute paths/);
+  assert.throws(() => claudeConfigDirectories("\n", options), /control characters/);
+  assert.throws(() => claudeConfigDirectories("/missing", options), /existing directory/);
+});
+
+test("extra Claude profiles merge only Claude rows and fail closed", () => {
+  const invocations = [];
+  const options = {
+    existsSyncFn: () => true, realpathSyncFn: (path) => path, statSyncFn: () => ({ isDirectory: () => true }), loadSupplementalUsageFn: () => ({ daily: [] }),
+    execFileSyncFn: (_command, args, execOptions) => {
+      invocations.push({ args, home: execOptions.env.CLAUDE_CONFIG_DIR });
+      if (execOptions.env.CLAUDE_CONFIG_DIR === "/profiles/work") return JSON.stringify({ daily: [
+        { date: "2026-08-25", agent: "claude", inputTokens: 20 },
+        { date: "2026-08-25", agent: "codex", inputTokens: 999 },
+      ] });
+      return JSON.stringify({ daily: [{ date: "2026-08-25", agent: "claude", inputTokens: 10 }] });
+    },
+  };
+  const env = { CCUSAGE_BIN: "/opt/ccusage", HOME: "/profiles", CRIBBLE_CLAUDE_CONFIG_DIRS: "/profiles/.claude,/profiles/work" };
+  const result = loadUsage(env, options);
+  assert.equal(result.daily.reduce((sum, row) => sum + row.inputTokens, 0), 30);
+  assert.equal(result.daily.some((row) => row.inputTokens === 999), false);
+  assert.equal(invocations.length, 2);
+  assert.ok(invocations[1].args.includes("--by-agent"));
+  assert.throws(() => loadUsage(env, { ...options, execFileSyncFn: (_c, _a, o) => { if (o.env.CLAUDE_CONFIG_DIR) throw new Error("profile failed"); return '{"daily":[]}'; } }), /profile failed/);
+});
 
 function fakeCcusageInstall() {
   const packagePath = resolve("/app/node_modules/ccusage/package.json");
