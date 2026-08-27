@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "eventId": "ollama:qwen25-3b-sanitized-smoke",
+  "requestId": "qwen25-3b-sanitized-smoke",
+  "occurredAt": "2026-08-27T04:17:20.000Z",
+  "agent": "cribble-smoke",
+  "provider": "ollama",
+  "runtime": "ollama",
+  "model": "qwen2.5:3b",
+  "provenance": [
+    "local_runtime_ledger",
+    "real_local_smoke"
+  ],
+  "inputTokens": 34,
+  "outputTokens": 2,
+  "billedCostUsd": 0
+}
