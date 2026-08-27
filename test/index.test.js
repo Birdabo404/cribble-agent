@@ -525,7 +525,7 @@ test("sync dry-run uses the collector timezone without network access", async ()
   assert.equal(payload.timezone, "UTC");
   assert.deepEqual(payload.provenance, {
     source: "ccusage",
-    cliVersion: "1.4.0-beta.1",
+    cliVersion: "1.4.0-beta.2",
   });
 });
 

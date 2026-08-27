@@ -231,9 +231,32 @@ test("Windows credentials are protected with DPAPI before reaching disk", async 
       ),
       true,
     );
+    assert.equal(
+      calls.every((call) =>
+        call.args.at(-1).includes("Add-Type -AssemblyName System.Security")),
+      true,
+    );
     assert.equal(calls.flatMap((call) => call.args).includes(API_KEY), false);
     assert.equal(removeKeychainApiKey({ platform: "win32", filePath }), true);
     assert.equal(keychainHasApiKey({ platform: "win32", filePath }), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Windows PowerShell can round-trip a key through DPAPI", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-windows-dpapi-"));
+  const filePath = join(root, "agent-key.dpapi");
+
+  try {
+    await promptAndStoreApiKey({
+      platform: "win32",
+      filePath,
+      readSecretFn: async () => API_KEY,
+    });
+    assert.equal(readKeychainApiKey({ platform: "win32", filePath }), API_KEY);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
