@@ -1,6 +1,6 @@
 {
   "name": "cribble-agent",
-  "version": "1.4.0-beta.1",
+  "version": "1.4.0-beta.2",
   "description": "A cross-platform CLI and opt-in background client for Cribble agent token usage.",
   "main": "index.js",
   "bin": {
