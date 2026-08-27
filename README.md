@@ -37,8 +37,10 @@ Linux key storage requires `secret-tool` (usually packaged as
 ```sh
 cribble                 # View the latest 7 usage days
 cribble --days 30       # Choose a history window
+cribble --all           # View all available history (up to 365 days)
 cribble status           # Check your key and sync state
 cribble sync --dry-run  # Preview a sync without sending it
+cribble sync --all      # Sync all available history (up to 365 days)
 ```
 
 Pause, resume, or remove background sync whenever you want:
@@ -68,8 +70,10 @@ falls back to `node:sqlite` on Node.js 22+.
 Set `HERMES_HOME` to one Hermes root, or to ccusage's comma-separated list of
 roots, when named Hermes profiles live outside the default location. Cribble
 passes the explicit value through unchanged while continuing to remove unrelated
-API keys and credentials from the collector environment. Collection is bounded
-to the requested `--days` window and a 120-second timeout. For unusually large
+API keys and credentials from the collector environment. Collection is bounded to the requested `--days` window, or the 365-day maximum
+selected by `--all`, and a 120-second timeout. `--all` is available for
+foreground display and sync; scheduled background sync keeps its explicit
+`--days` setting. For unusually large
 local histories, set `CRIBBLE_CCUSAGE_TIMEOUT_MS` to a whole number from 1000 to
 900000. Run `cribble start` again after changing either variable so the opt-in
 background job captures the same values as foreground sync.
