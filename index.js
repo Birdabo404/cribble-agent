@@ -53,6 +53,7 @@ const {
 } = require("./lib/terminal");
 
 const DEFAULT_DAYS = 7;
+const MAX_HISTORY_DAYS = 365;
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_SYNC_ENDPOINT = "https://cribble.dev/api/agent/usage";
 const FRIENDLY_COMMANDS = Object.freeze({
@@ -156,6 +157,9 @@ function parseArgs(argv) {
     } else if (arg.startsWith("--days=")) {
       seen.add("days");
       options.days = parseWholeNumber(arg.slice(7), "--days");
+    } else if (arg === "--all") {
+      seen.add("all");
+      options.days = MAX_HISTORY_DAYS;
     } else if (arg === "--interval") {
       seen.add("interval");
       options.intervalMinutes = parseWholeNumber(
@@ -177,7 +181,10 @@ function parseArgs(argv) {
     } else throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (options.days < 1 || options.days > 365) {
+  if (seen.has("all") && seen.has("days")) {
+    throw new Error("--all cannot be used with --days.");
+  }
+  if (options.days < 1 || options.days > MAX_HISTORY_DAYS) {
     throw new Error("--days must be a whole number between 1 and 365.");
   }
   if (
@@ -201,6 +208,9 @@ function parseArgs(argv) {
     if (command !== "background" || action !== "install") {
       throw new Error("--days can only be used with show, sync, or background install.");
     }
+  }
+  if (seen.has("all") && !["show", "sync"].includes(command)) {
+    throw new Error("--all can only be used with show or sync.");
   }
   if (seen.has("interval") && (command !== "background" || action !== "install")) {
     throw new Error("--interval can only be used with background install.");
@@ -226,9 +236,9 @@ function usage() {
   return `Cribble · Token tracker
 
 Quick commands:
-  cribble [--days 7] [--json]
+  cribble [--days 7 | --all] [--json]
   cribble connect
-  cribble sync [--endpoint URL] [--days 7] [--dry-run]
+  cribble sync [--endpoint URL] [--days 7 | --all] [--dry-run]
   cribble status
   cribble start [--interval 15] [--days 7]
   cribble pause
@@ -251,6 +261,7 @@ Background install options:
 
 General options:
   --days N       Keep the latest N usage days (default: 7)
+  --all          Scan the maximum supported history window (365 days)
   --json         Print the local display snapshot as JSON
   --endpoint URL Override CRIBBLE_SYNC_URL for this sync
   --dry-run      Print the wire payload without saving status or sending it
