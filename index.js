@@ -267,6 +267,7 @@ Environment:
   CRIBBLE_CCUSAGE_TIMEOUT_MS  ccusage timeout in ms (default: 120000)
   PRIME_AGENT_HOME   Optional Prime Agent home directory
   PRIME_AGENT_DIR    Optional Prime Agent data directory
+  CRIBBLE_CURSOR     Set to 0 to skip a Cursor refresh (keeps last ledger)
 
 Cribble Agent supports macOS, Linux, and Windows. Automatic sync is opt-in.
 Run \`cribble connect\` before \`cribble start\`. The Agent key is never

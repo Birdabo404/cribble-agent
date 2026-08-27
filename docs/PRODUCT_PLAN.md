@@ -97,6 +97,8 @@ is installed until the pilot explicitly runs `background install`.
 - [x] Add native Windows plus WSL home discovery without invoking a shell.
 - [x] Add an event-deduplicated Prime Agent reader for a provider that ccusage
   does not currently cover.
+- [x] Add a macOS, Linux, and Windows Cursor reader that uses Cursor's local
+  session plus official usage export, without uploading the session cookie.
 - [x] Give ccusage precedence by provider and day so additive collectors cannot
   double-count Claude, Codex, or Cursor records.
 - [x] Persist one Windows/WSL collection scope and reject unsafe aggregate

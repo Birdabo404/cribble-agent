@@ -15,6 +15,7 @@ const { join } = require("node:path");
 
 const {
   BACKGROUND_LABEL,
+  backgroundStatus,
   installBackground,
   launchAgentPath,
   launchAgentPlist,
@@ -22,6 +23,32 @@ const {
   resolveStableNodePath,
   resumeBackground,
 } = require("../lib/background");
+
+test("macOS pause detection understands old and new launchctl formats", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-agent-background-"));
+  const statusFor = (printDisabledStdout) =>
+    backgroundStatus({
+      platform: "darwin",
+      homeDirectory: root,
+      uid: 501,
+      spawnSyncFn: (_command, args) => {
+        if (args[0] === "print-disabled") {
+          return { status: 0, stdout: printDisabledStdout, stderr: "" };
+        }
+        return { status: 3, stdout: "", stderr: "" };
+      },
+    });
+  try {
+    // Modern macOS prints => disabled / => enabled.
+    assert.equal(statusFor(`"${BACKGROUND_LABEL}" => disabled`).disabled, true);
+    assert.equal(statusFor(`"${BACKGROUND_LABEL}" => enabled`).disabled, false);
+    // Older macOS prints => true / => false.
+    assert.equal(statusFor(`"${BACKGROUND_LABEL}" => true`).disabled, true);
+    assert.equal(statusFor(`"${BACKGROUND_LABEL}" => false`).disabled, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("launchAgentPlist schedules an opt-in low-priority sync without secrets", () => {
   const plist = launchAgentPlist({

@@ -11,6 +11,10 @@ const {
   resolveBundledBinary,
 } = require("../lib/source");
 
+const isolatedUsage = {
+  loadSupplementalUsageFn: () => ({ daily: [] }),
+};
+
 function fakeCcusageInstall() {
   const packagePath = resolve("/app/node_modules/ccusage/package.json");
   return {
@@ -69,6 +73,7 @@ test("loadUsage invokes the configured collector without a shell", () => {
         invocation = { command, args, options };
         return '{"daily":[]}';
       },
+      ...isolatedUsage,
     },
   );
 
@@ -118,6 +123,7 @@ test("loadUsage constrains ccusage to the requested timezone date window", () =>
         invocation = { command, args, options };
         return '{"daily":[]}';
       },
+      ...isolatedUsage,
     },
   );
 
@@ -152,6 +158,7 @@ test("ccusage timeout is configurable, bounded, and reported clearly", () => {
         configuredTimeout = options.timeout;
         return '{"daily":[]}';
       },
+      ...isolatedUsage,
     },
   );
   assert.equal(configuredTimeout, 70_000);
@@ -209,6 +216,7 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
         invocation = { command, args, options };
         return '{"daily":[]}';
       },
+      ...isolatedUsage,
     },
   );
 

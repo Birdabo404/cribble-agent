@@ -18,6 +18,7 @@ const {
   postSnapshot,
   renderSnapshot,
 } = require("../index");
+const { version: packageVersion } = require("../package.json");
 
 const NOW = new Date("2026-08-22T00:00:00.000Z");
 const CLIENT_ID = "123e4567-e89b-42d3-a456-426614174000";
@@ -211,6 +212,29 @@ test("supplemental usage keeps v1 wire provenance compatible", () => {
 
   assert.equal(payload.timezone, "UTC");
   assert.equal(snapshot.source, "cribble-agent");
+  assert.equal(payload.provenance.source, "ccusage");
+});
+
+test("Cursor supplemental usage also keeps v1 wire provenance compatible", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [{
+        date: "2026-08-22",
+        agent: "cursor",
+        inputTokens: 4,
+      }],
+      sources: ["ccusage", "cursor"],
+      timezone: "UTC",
+    },
+    { now: NOW },
+  );
+  const payload = buildWirePayload(snapshot, {
+    clientId: CLIENT_ID,
+    cliVersion: "1.4.0-test",
+  });
+
+  assert.equal(snapshot.source, "cribble-agent");
+  assert.deepEqual(snapshot.agents, ["cursor"]);
   assert.equal(payload.provenance.source, "ccusage");
 });
 
@@ -525,7 +549,7 @@ test("sync dry-run uses the collector timezone without network access", async ()
   assert.equal(payload.timezone, "UTC");
   assert.deepEqual(payload.provenance, {
     source: "ccusage",
-    cliVersion: "1.4.0-beta.3",
+    cliVersion: packageVersion,
   });
 });
 
