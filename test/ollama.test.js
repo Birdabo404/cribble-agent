@@ -66,3 +66,20 @@ test("request dedup removes equivalent cross-source replay but never count colli
     assert.deepEqual(report.events.find(e=>e.requestId==="req-1").provenance.sort(), ["local_runtime_ledger","opencode"]);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
+
+test("append rejects same-owner pathname replacement after inspection", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-ollama-")); const file = join(root, "usage.jsonl");
+  try {
+    writeFileSync(file, "", { mode: 0o600 });
+    assert.throws(() => appendOllamaEvent(file, event(), { afterInspect: () => { rmSync(file); writeFileSync(file, "attacker\n", { mode: 0o600 }); } }), /changed before append/);
+    assert.equal(readFileSync(file, "utf8"), "attacker\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("append rejects a competing creation of an absent ledger", () => {
+  const root = mkdtempSync(join(tmpdir(), "cribble-ollama-")); const file = join(root, "usage.jsonl");
+  try {
+    assert.throws(() => appendOllamaEvent(file, event(), { afterInspect: () => writeFileSync(file, "attacker\n", { mode: 0o600 }) }), /appeared before append/);
+    assert.equal(readFileSync(file, "utf8"), "attacker\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
