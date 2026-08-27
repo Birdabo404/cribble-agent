@@ -43,6 +43,29 @@ test("Windows discovery resolves WSL homes through UNC without a shell", () => {
   ]);
 });
 
+test("Windows discovery ignores application-managed WSL distributions", () => {
+  const calls = [];
+  const homes = discoverWslHomes({
+    platform: "win32",
+    env: {},
+    execFileSyncFn: (_command, args) => {
+      calls.push(args);
+      if (args[0] === "-l") {
+        return Buffer.from("docker-desktop\r\nUbuntu\r\n", "utf16le");
+      }
+      return Buffer.from("/home/alice\n", "utf8");
+    },
+    existsSyncFn: () => true,
+  });
+
+  assert.deepEqual(homes, [{
+    distribution: "Ubuntu",
+    home: "\\\\wsl.localhost\\Ubuntu\\home\\alice",
+  }]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1][1], "Ubuntu");
+});
+
 test("Windows usage homes include a native fallback after preferred WSL homes", () => {
   const options = {
     platform: "win32",
