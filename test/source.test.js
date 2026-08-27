@@ -335,6 +335,48 @@ test("Windows collection falls back to native when WSL has no usage", () => {
   assert.equal(invocations[1].APPDATA, "C:\\Users\\alice\\AppData\\Roaming");
 });
 
+test("Windows collection skips WSL homes without Claude data", () => {
+  const invocations = [];
+  const result = loadUsage(
+    {
+      APPDATA: "C:\\Users\\alice\\AppData\\Roaming",
+      CCUSAGE_BIN: "/opt/ccusage",
+      USERPROFILE: "C:\\Users\\alice",
+    },
+    {
+      platform: "win32",
+      usageHomesFn: () => [
+        {
+          scope: "wsl:Ubuntu",
+          home: "\\\\wsl.localhost\\Ubuntu\\home\\alice",
+        },
+        { scope: "native", home: "C:\\Users\\alice" },
+      ],
+      loadSupplementalUsageFn: () => ({ daily: [] }),
+      execFileSyncFn: (_command, _args, options) => {
+        invocations.push(options.env);
+        if (options.env.HOME?.startsWith("\\\\wsl")) {
+          const error = new Error("ccusage exited");
+          error.stderr =
+            'CliError("No valid Claude data directories found in CLAUDE_CONFIG_DIR.")';
+          throw error;
+        }
+        return JSON.stringify({
+          daily: [{
+            date: "2026-08-25",
+            agent: "claude",
+            inputTokens: 10,
+          }],
+        });
+      },
+    },
+  );
+
+  assert.equal(result.daily.length, 1);
+  assert.equal(result.scope, "native");
+  assert.equal(invocations.length, 2);
+});
+
 test("Windows collection keeps native logs out when preferred WSL has usage", () => {
   const invocations = [];
   let persistedScope;
