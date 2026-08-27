@@ -2,7 +2,8 @@
 
 ## TokenTracker
 
-Cribble's passive Prime Agent usage reader and WSL discovery were adapted from
+Cribble's passive Prime Agent usage reader, Cursor session/usage reader, SQLite
+helper, and WSL discovery were adapted from
 [TokenTracker](https://github.com/xiufengsun/TokenTracker).
 
 MIT License

@@ -78,6 +78,17 @@ and logs.
 Prime Agent support retains only token counts, timestamps, provider, and model
 from local records. Never request session or conversation files from a tester.
 
+Cursor support reads the local Cursor login only to call Cursor's own usage
+export, then keeps token counts, timestamps, model, and cost. Never request a
+Cursor cookie, JWT, `state.vscdb`, or session file from a tester. Cursor
+refresh problems (signed out, expired session, offline, unreadable export)
+never block the sync: the last complete local ledger is kept and a warning is
+printed. If Cursor is signed in and totals are missing, ask whether `sqlite3`
+or Node.js 22+ is available and what Cursor warning `cribble --no-color`
+prints.
+`CRIBBLE_CURSOR=0` skips a Cursor refresh while preserving the last complete
+local ledger; it does not authorize uploading a lower replacement total.
+
 ## Pause, remove, or rotate access
 
 Pause without disconnecting:

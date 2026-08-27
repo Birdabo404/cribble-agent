@@ -152,7 +152,11 @@ test("Linux discovery adds Prime Agent on top of ccusage", () => {
 
     const supplemental = loadSupplementalUsage(
       { HOME: home },
-      { platform: "linux", homes: [{ scope: "native", home }] },
+      {
+        platform: "linux",
+        homes: [{ scope: "native", home }],
+        loadCursorUsageFn: () => ({ daily: [] }),
+      },
     );
     assert.equal(supplemental.daily.length, 1);
     const snapshot = buildSnapshot(supplemental, { days: 365 });
@@ -172,6 +176,7 @@ test("Prime Agent ledger preserves usage after session rotation", () => {
     homes: [{ scope: "native", home }],
     timezone: "UTC",
     nowFn: () => new Date("2026-08-26T00:00:00.000Z"),
+    loadCursorUsageFn: () => ({ daily: [] }),
   };
   try {
     mkdirSync(sessions, { recursive: true });
@@ -217,7 +222,7 @@ test("ccusage wins for true overlaps while pi does not suppress Prime Agent", ()
   assert.equal(merged.daily.length, 3);
   assert.equal(merged.daily[1].agent, "prime-agent");
   assert.equal(merged.daily[2].agent, "qoder");
-  assert.deepEqual(merged.sources, ["ccusage", "prime-agent"]);
+  assert.deepEqual(merged.sources, ["ccusage", "prime-agent", "qoder"]);
 });
 
 test("Prime Agent byte limits fail instead of returning a partial total", () => {
@@ -261,6 +266,7 @@ test("Prime Agent byte limits fail instead of returning a partial total", () => 
             platform: "linux",
             homes: [{ scope: "native", home }],
             statSyncFn,
+            loadCursorUsageFn: () => ({ daily: [] }),
           },
         ),
       /refusing a partial usage report/,

@@ -50,12 +50,20 @@ cribble background uninstall
 ```
 
 Cribble uses [`ccusage`](https://ccusage.com/) as its primary collector. It also
-supports Prime Agent, which ccusage does not currently cover. The passive Prime
-reader retains only token counts, timestamps, provider, and model; prompts,
-responses, and tool output are never retained or uploaded. A machine-local,
+supports Prime Agent and Cursor, which ccusage does not currently cover. The
+passive Prime reader and the Cursor reader retain only token counts,
+timestamps, provider, model, and cost; prompts, responses, tool output, and
+Cursor session cookies are never retained or uploaded. Cursor totals come from
+Cursor's official usage export, authenticated with the login already stored in
+the local Cursor app on macOS, Linux, or Windows. A machine-local,
 metadata-only event ledger preserves those totals when Prime rotates old
-session files; incomplete or unreadable scans fail instead of uploading a lower
-replacement total.
+session files or Cursor's local state is temporarily missing; incomplete or
+unreadable Prime scans fail instead of uploading a lower replacement total,
+and Cursor refresh problems (signed out, expired session, offline) keep the
+last complete ledger and print a warning instead of blocking the sync. Set
+`CRIBBLE_CURSOR=0` to skip refreshing Cursor while keeping the last complete
+ledger. Cursor SQLite reading uses the system `sqlite3` CLI when available and
+falls back to `node:sqlite` on Node.js 22+.
 
 Set `HERMES_HOME` to one Hermes root, or to ccusage's comma-separated list of
 roots, when named Hermes profiles live outside the default location. Cribble

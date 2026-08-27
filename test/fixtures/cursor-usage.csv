@@ -1,0 +1,4 @@
+Date,Model,Kind,Cloud Agent ID,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost
+2026-08-25T16:00:00.000Z,claude-4-sonnet,Included,agt_1,150,100,50,35,235,"$0.12"
+2026-08-25,gpt-5,Usage-based,,80,80,0,20,100,0.40
+08/24/2026,cursor-small,Included,,10,10,0,5,15,"$0.01"

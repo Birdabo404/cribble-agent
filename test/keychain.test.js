@@ -155,10 +155,16 @@ test("Keychain setup sends the secret over stdin and never puts it in argv", asy
     },
   });
 
-  assert.equal(invocation.args.at(-1), "-w");
+  // Interactive mode keeps the whole command on stdin. `-w <value>` never
+  // prompts, so `cribble connect` asks for the key exactly once, and the
+  // secret stays out of process arguments.
+  assert.deepEqual(invocation.args, ["-i"]);
   assert.deepEqual(invocation.options.stdio, ["pipe", "pipe", "pipe"]);
-  assert.equal(invocation.options.input, `${API_KEY}\n${API_KEY}\n`);
-  assert.equal(invocation.args.some((argument) => argument.startsWith("crib_ag_")), false);
+  assert.equal(
+    invocation.options.input,
+    `add-generic-password -a ${KEYCHAIN_ACCOUNT} -s ${KEYCHAIN_SERVICE} -l "Cribble Agent Key" -U -w ${API_KEY}\n`,
+  );
+  assert.equal(invocation.args.some((argument) => argument.includes("crib_ag_")), false);
 });
 
 test("Linux credentials use Secret Service without exposing the key in argv", async () => {
