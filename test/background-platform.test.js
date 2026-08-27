@@ -33,7 +33,7 @@ test("Linux systemd units schedule sync without embedding credentials", () => {
     days: 7,
     hermesHome: "/home/alice/.hermes,/mnt/hermes archive",
     ccusageTimeoutMs: 180_000,
-    claudeConfigDirs: "/home/alice/.claude,/home/alice/.claude-work",
+    claudeConfigDirs: "/profiles/claude-a,/profiles/claude-b",
   });
 
   assert.match(units.service, /sync/);
@@ -43,7 +43,7 @@ test("Linux systemd units schedule sync without embedding credentials", () => {
   assert.match(units.service, /\/home\/alice\/\.hermes/);
   assert.match(units.service, /--ccusage-timeout-ms/);
   assert.match(units.service, /180000/);
-  assert.match(units.service, /CRIBBLE_CLAUDE_CONFIG_DIRS=\/home\/alice\/\.claude,\/home\/alice\/\.claude-work/);
+  assert.match(units.service, /CRIBBLE_CLAUDE_CONFIG_DIRS=\/profiles\/claude-a,\/profiles\/claude-b/);
   assert.match(units.timer, /OnUnitActiveSec=15min/);
   assert.doesNotMatch(units.timer, /Persistent=true/);
   assert.doesNotMatch(units.service + units.timer, /CRIBBLE_API_KEY|crib_ag_/);
