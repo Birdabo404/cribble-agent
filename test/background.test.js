@@ -50,7 +50,7 @@ test("macOS pause detection understands old and new launchctl formats", () => {
   }
 });
 
-test("launchAgentPlist schedules an opt-in low-priority sync without secrets", () => {
+test("launchAgentPlist schedules an opt-in sync without secrets", () => {
   const plist = launchAgentPlist({
     nodePath: "/usr/local/bin/node",
     entryPath: "/Users/test/cribble-agent/index.js",
@@ -67,7 +67,7 @@ test("launchAgentPlist schedules an opt-in low-priority sync without secrets", (
   assert.match(plist, /<integer>15<\/integer>/);
   assert.match(plist, /<integer>30<\/integer>/);
   assert.match(plist, /<integer>45<\/integer>/);
-  assert.match(plist, /<string>Background<\/string>/);
+  assert.doesNotMatch(plist, /ProcessType|LowPriorityIO/);
   assert.match(plist, /<string>--hermes-home<\/string>/);
   assert.match(plist, /\/Users\/test\/\.hermes,\/Volumes\/hermes &amp; archive/);
   assert.match(plist, /<string>--ccusage-timeout-ms<\/string>/);

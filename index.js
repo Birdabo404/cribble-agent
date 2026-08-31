@@ -115,6 +115,7 @@ function parseArgs(argv) {
     endpoint: undefined,
     dryRun: false,
     background: false,
+    all: false,
     json: false,
     color: undefined,
     hermesHome: undefined,
@@ -135,6 +136,9 @@ function parseArgs(argv) {
     } else if (arg === "--background") {
       options.background = true;
       seen.add("background");
+    } else if (arg === "--all") {
+      options.all = true;
+      seen.add("all");
     } else if (arg === "--no-color") {
       options.color = false;
       seen.add("color");
@@ -180,6 +184,9 @@ function parseArgs(argv) {
   if (options.days < 1 || options.days > 365) {
     throw new Error("--days must be a whole number between 1 and 365.");
   }
+  if (seen.has("all") && seen.has("days")) {
+    throw new Error("--all and --days cannot be used together.");
+  }
   if (
     options.ccusageTimeoutMs !== undefined &&
     (options.ccusageTimeoutMs < 1_000 || options.ccusageTimeoutMs > 15 * 60_000)
@@ -201,6 +208,9 @@ function parseArgs(argv) {
     if (command !== "background" || action !== "install") {
       throw new Error("--days can only be used with show, sync, or background install.");
     }
+  }
+  if (seen.has("all") && !["show", "sync"].includes(command)) {
+    throw new Error("--all can only be used with show or sync.");
   }
   if (seen.has("interval") && (command !== "background" || action !== "install")) {
     throw new Error("--interval can only be used with background install.");
@@ -226,9 +236,9 @@ function usage() {
   return `Cribble · Token tracker
 
 Quick commands:
-  cribble [--days 7] [--json]
+  cribble [--days 7 | --all] [--json]
   cribble connect
-  cribble sync [--endpoint URL] [--days 7] [--dry-run]
+  cribble sync [--endpoint URL] [--days 7 | --all] [--dry-run]
   cribble status
   cribble start [--interval 15] [--days 7]
   cribble pause
@@ -251,6 +261,7 @@ Background install options:
 
 General options:
   --days N       Keep the latest N usage days (default: 7)
+  --all          Keep all available usage history
   --json         Print the local display snapshot as JSON
   --endpoint URL Override CRIBBLE_SYNC_URL for this sync
   --dry-run      Print the wire payload without saving status or sending it
@@ -556,10 +567,10 @@ async function main(
   if (options.command === "show") {
     const now = deps.nowFn();
     const snapshot = buildSnapshot(deps.loadUsageFn(env, {
-      days: options.days,
+      days: options.all ? undefined : options.days,
       now,
     }), {
-      days: options.days,
+      days: options.all ? Number.MAX_SAFE_INTEGER : options.days,
       now,
     });
     deps.log(
@@ -573,7 +584,7 @@ async function main(
   const preparePayload = () => {
     const now = deps.nowFn();
     const snapshot = buildSnapshot(deps.loadUsageFn(env, {
-      days: options.days,
+      days: options.all ? undefined : options.days,
       now,
       hermesHome: options.hermesHome,
       timeoutMs: options.ccusageTimeoutMs,
@@ -586,7 +597,7 @@ async function main(
     return buildWirePayload(snapshot, {
       clientId: deps.getClientIdFn(),
       timezone: snapshot.timezone ?? deps.timezoneFn(),
-      days: options.days,
+      days: options.all ? undefined : options.days,
     });
   };
 

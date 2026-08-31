@@ -9,6 +9,7 @@ const {
   collectionSince,
   loadUsage,
   resolveBundledBinary,
+  resolveBundledNativeBinary,
 } = require("../lib/source");
 
 const isolatedUsage = {
@@ -56,6 +57,82 @@ test("resolveBundledBinary supports npm-hoisted dependencies", () => {
   assert.equal(binary, binaryPath);
 });
 
+test("resolveBundledNativeBinary resolves the installed platform package", () => {
+  const packagePath = resolve(
+    "/app/node_modules/@ccusage/ccusage-darwin-arm64/package.json",
+  );
+  const binaryPath = resolve(dirname(packagePath), "bin", "ccusage");
+  const binary = resolveBundledNativeBinary(resolve("/app/cribble-agent"), {
+    accessSyncFn: () => {},
+    arch: "arm64",
+    platform: "darwin",
+    existsSyncFn: (filePath) => filePath === binaryPath,
+    requireResolveFn: () => packagePath,
+  });
+
+  assert.equal(binary, binaryPath);
+});
+
+test("resolveBundledNativeBinary repairs a missing executable bit", () => {
+  const packagePath = resolve(
+    "/app/node_modules/@ccusage/ccusage-darwin-arm64/package.json",
+  );
+  const binaryPath = resolve(dirname(packagePath), "bin", "ccusage");
+  let executable = false;
+  let repairedMode;
+  const binary = resolveBundledNativeBinary(resolve("/app/cribble-agent"), {
+    arch: "arm64",
+    platform: "darwin",
+    existsSyncFn: (filePath) => filePath === binaryPath,
+    requireResolveFn: () => packagePath,
+    accessSyncFn: () => {
+      if (!executable) throw new Error("EACCES");
+    },
+    chmodSyncFn: (_filePath, mode) => {
+      executable = true;
+      repairedMode = mode;
+    },
+  });
+
+  assert.equal(binary, binaryPath);
+  assert.equal(repairedMode, 0o755);
+});
+
+test("loadUsage invokes the bundled native collector directly", () => {
+  let invocation;
+  const packagePath = resolve(
+    "/app/node_modules/@ccusage/ccusage-darwin-arm64/package.json",
+  );
+  const binaryPath = resolve(dirname(packagePath), "bin", "ccusage");
+  const result = loadUsage(
+    {},
+    {
+      arch: "arm64",
+      platform: "darwin",
+      timezone: "UTC",
+      baseDirectory: resolve("/app/cribble-agent"),
+      existsSyncFn: (filePath) => filePath === binaryPath,
+      accessSyncFn: () => {},
+      requireResolveFn: () => packagePath,
+      execFileSyncFn: (command, args) => {
+        invocation = { command, args };
+        return '{"daily":[]}';
+      },
+      ...isolatedUsage,
+    },
+  );
+
+  assert.deepEqual(result, { daily: [], timezone: "UTC" });
+  assert.equal(invocation.command, binaryPath);
+  assert.deepEqual(invocation.args, [
+    "daily",
+    "--by-agent",
+    "--json",
+    "--timezone",
+    "UTC",
+  ]);
+});
+
 test("loadUsage invokes the configured collector without a shell", () => {
   let invocation;
   const result = loadUsage(
@@ -81,6 +158,7 @@ test("loadUsage invokes the configured collector without a shell", () => {
   assert.equal(invocation.command, "/opt/tools/ccusage");
   assert.deepEqual(invocation.args, [
     "daily",
+    "--by-agent",
     "--json",
     "--timezone",
     "UTC",
@@ -129,6 +207,7 @@ test("loadUsage constrains ccusage to the requested timezone date window", () =>
 
   assert.deepEqual(invocation.args, [
     "daily",
+    "--by-agent",
     "--json",
     "--since",
     "2026-08-20",
@@ -225,6 +304,7 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
   assert.deepEqual(invocation.args, [
     binaryPath,
     "daily",
+    "--by-agent",
     "--json",
     "--timezone",
     "UTC",
@@ -258,6 +338,7 @@ test("loadUsage never passes a Windows npm shell shim to node.exe", () => {
   assert.deepEqual(invocation.args, [
     binaryPath,
     "daily",
+    "--by-agent",
     "--json",
     "--timezone",
     "UTC",

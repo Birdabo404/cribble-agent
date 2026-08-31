@@ -75,7 +75,16 @@ test("buildSnapshot filters current ccusage output to the latest requested days"
   assert.equal(snapshot.totals.costUsd, 1.25);
   assert.deepEqual(snapshot.agents, ["claude", "codex"]);
   assert.deepEqual(snapshot.models, ["model-a", "model-b"]);
-  assert.equal(snapshot.daily[0].modelBreakdowns, undefined);
+  assert.deepEqual(snapshot.daily[0].modelBreakdowns, [
+    {
+      name: "model-a",
+      inputTokens: 200,
+      outputTokens: 80,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      totalTokens: 280,
+    },
+  ]);
 });
 
 test("buildSnapshot supports the legacy type/data/summary shape", () => {
@@ -103,7 +112,7 @@ test("buildSnapshot supports the legacy type/data/summary shape", () => {
   assert.equal(snapshot.totals.cacheTokens, 27);
 });
 
-test("buildSnapshot orders daily models by actual token usage without exposing breakdowns", () => {
+test("buildSnapshot retains exact model token breakdowns in usage order", () => {
   const snapshot = buildSnapshot(
     {
       daily: [
@@ -141,7 +150,8 @@ test("buildSnapshot orders daily models by actual token usage without exposing b
     "gpt-5.5",
     "gpt-5.6-terra",
   ]);
-  assert.equal(snapshot.daily[0].modelBreakdowns, undefined);
+  assert.equal(snapshot.daily[0].modelBreakdowns[0].name, "gpt-5.6-sol");
+  assert.equal(snapshot.daily[0].modelBreakdowns[0].totalTokens, 9_550);
 });
 
 test("buildWirePayload adds client identity, timezone, and provenance", () => {
@@ -187,6 +197,24 @@ test("buildWirePayload adds client identity, timezone, and provenance", () => {
         cacheReadTokens: 14,
         totalTokens: 50,
         costUsd: 0.25,
+        agentBreakdowns: [
+          {
+            name: "codex",
+            inputTokens: 11,
+            outputTokens: 12,
+            cacheCreationTokens: 13,
+            cacheReadTokens: 14,
+          },
+        ],
+        modelBreakdowns: [
+          {
+            name: "gpt-5",
+            inputTokens: 11,
+            outputTokens: 12,
+            cacheCreationTokens: 13,
+            cacheReadTokens: 14,
+          },
+        ],
       },
     ],
   });
@@ -322,7 +350,16 @@ test("duplicate source dates rank models by combined token usage", () => {
   );
 
   assert.deepEqual(snapshot.daily[0].models, ["model-b", "model-a"]);
-  assert.equal(snapshot.daily[0].modelTokenTotals, undefined);
+  assert.deepEqual(
+    snapshot.daily[0].modelBreakdowns.map(({ name, totalTokens }) => ({
+      name,
+      totalTokens,
+    })),
+    [
+      { name: "model-b", totalTokens: 550 },
+      { name: "model-a", totalTokens: 101 },
+    ],
+  );
 });
 
 test("invalid source dates cannot displace a valid display day", () => {
@@ -487,6 +524,7 @@ test("parseArgs handles show and sync options", () => {
     endpoint: undefined,
     dryRun: false,
     background: false,
+    all: false,
     json: false,
     color: undefined,
     hermesHome: undefined,
@@ -508,6 +546,7 @@ test("parseArgs handles show and sync options", () => {
       endpoint: "https://api.test/sync",
       dryRun: true,
       background: false,
+      all: false,
       json: false,
       color: undefined,
       hermesHome: undefined,
@@ -515,6 +554,36 @@ test("parseArgs handles show and sync options", () => {
     },
   );
   assert.throws(() => parseArgs(["--days", "0"]), /between 1 and 365/);
+  assert.equal(parseArgs(["sync", "--all", "--dry-run"]).all, true);
+  assert.throws(
+    () => parseArgs(["sync", "--all", "--days", "30"]),
+    /cannot be used together/,
+  );
+});
+
+test("sync --all dry-run retains every valid historical usage day", async () => {
+  const output = [];
+  let collectionDays = "not-called";
+  await main(["sync", "--all", "--dry-run"], {}, {
+    getClientIdFn: () => CLIENT_ID,
+    loadUsageFn: (_env, options) => {
+      collectionDays = options.days;
+      return {
+        daily: [
+          { date: "2025-06-08", inputTokens: 1 },
+          { date: "2026-08-31", outputTokens: 2 },
+        ],
+      };
+    },
+    log: (value) => output.push(value),
+    timezoneFn: () => "America/Phoenix",
+  });
+
+  assert.equal(collectionDays, undefined);
+  assert.deepEqual(
+    JSON.parse(output[0]).daily.map((row) => row.date),
+    ["2025-06-08", "2026-08-31"],
+  );
 });
 
 test("a sync dry run can inspect the payload before an endpoint is configured", () => {
