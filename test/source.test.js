@@ -13,6 +13,7 @@ const {
 
 const isolatedUsage = {
   loadSupplementalUsageFn: () => ({ daily: [] }),
+  loadHermesProviderRoutesFn: () => [],
 };
 
 function fakeCcusageInstall() {
@@ -82,6 +83,7 @@ test("loadUsage invokes the configured collector without a shell", () => {
   assert.deepEqual(invocation.args, [
     "daily",
     "--json",
+    "--by-agent",
     "--timezone",
     "UTC",
   ]);
@@ -130,6 +132,7 @@ test("loadUsage constrains ccusage to the requested timezone date window", () =>
   assert.deepEqual(invocation.args, [
     "daily",
     "--json",
+    "--by-agent",
     "--since",
     "2026-08-20",
     "--timezone",
@@ -226,6 +229,7 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
     binaryPath,
     "daily",
     "--json",
+    "--by-agent",
     "--timezone",
     "UTC",
   ]);
@@ -259,6 +263,7 @@ test("loadUsage never passes a Windows npm shell shim to node.exe", () => {
     binaryPath,
     "daily",
     "--json",
+    "--by-agent",
     "--timezone",
     "UTC",
   ]);

@@ -594,11 +594,16 @@ async function main(
       days: Number.MAX_SAFE_INTEGER,
       now,
     });
-    return buildWirePayload(snapshot, {
+    const payload = buildWirePayload(snapshot, {
       clientId: deps.getClientIdFn(),
       timezone: snapshot.timezone ?? deps.timezoneFn(),
       days: options.days,
     });
+    Object.defineProperty(payload, "providers", {
+      value: snapshot.providers,
+      enumerable: false,
+    });
+    return payload;
   };
 
   if (options.dryRun) {
