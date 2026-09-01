@@ -154,6 +154,82 @@ test("buildSnapshot retains exact model token breakdowns in usage order", () => 
   assert.equal(snapshot.daily[0].modelBreakdowns[0].totalTokens, 9_550);
 });
 
+test("buildSnapshot drops zero-token model metadata that ccusage did not attribute", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          period: "2026-08-22",
+          agent: "claude",
+          modelsUsed: ["ccm-translated", "claude-opus-4-8"],
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 880,
+          modelBreakdowns: [
+            {
+              modelName: "claude-opus-4-8",
+              inputTokens: 100,
+              outputTokens: 20,
+              cacheReadTokens: 880,
+            },
+          ],
+        },
+      ],
+    },
+    { now: NOW },
+  );
+
+  assert.deepEqual(snapshot.models, ["claude-opus-4-8"]);
+  assert.deepEqual(snapshot.daily[0].models, ["claude-opus-4-8"]);
+});
+
+test("buildSnapshot consolidates ccusage DeepSeek aliases without losing tokens", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          period: "2026-08-22",
+          agent: "hermes",
+          modelsUsed: [
+            "~deepseek/deepseek-v4-flash-latest",
+            "deepseek-v4-flash",
+          ],
+          inputTokens: 150,
+          outputTokens: 30,
+          cacheReadTokens: 820,
+          modelBreakdowns: [
+            {
+              modelName: "~deepseek/deepseek-v4-flash-latest",
+              inputTokens: 100,
+              outputTokens: 20,
+              cacheReadTokens: 380,
+            },
+            {
+              modelName: "deepseek-v4-flash",
+              inputTokens: 50,
+              outputTokens: 10,
+              cacheReadTokens: 440,
+            },
+          ],
+        },
+      ],
+    },
+    { now: NOW },
+  );
+
+  assert.deepEqual(snapshot.models, ["deepseek-v4-flash"]);
+  assert.deepEqual(snapshot.daily[0].modelBreakdowns, [
+    {
+      name: "deepseek-v4-flash",
+      inputTokens: 150,
+      outputTokens: 30,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 820,
+      totalTokens: 1_000,
+    },
+  ]);
+});
+
 test("buildWirePayload adds client identity, timezone, and provenance", () => {
   const snapshot = buildSnapshot(
     {
@@ -220,12 +296,48 @@ test("buildWirePayload adds client identity, timezone, and provenance", () => {
   });
 });
 
+test("buildWirePayload refuses incomplete agent or model token attribution", () => {
+  const snapshot = buildSnapshot(
+    {
+      daily: [
+        {
+          period: "2026-08-22",
+          agent: "claude",
+          inputTokens: 100,
+          outputTokens: 20,
+          cacheReadTokens: 880,
+          modelsUsed: ["claude-opus-4-8", "claude-sonnet-4-6"],
+          modelBreakdowns: [
+            {
+              modelName: "claude-opus-4-8",
+              inputTokens: 50,
+              outputTokens: 10,
+              cacheReadTokens: 440,
+            },
+          ],
+        },
+      ],
+    },
+    { now: NOW },
+  );
+
+  assert.throws(
+    () => buildWirePayload(snapshot, {
+      clientId: CLIENT_ID,
+      timezone: "UTC",
+      cliVersion: "1.4.0-test",
+    }),
+    /Incomplete model token attribution.*2026-08-22/,
+  );
+});
+
 test("supplemental usage keeps v1 wire provenance compatible", () => {
   const snapshot = buildSnapshot(
     {
       daily: [{
         date: "2026-08-22",
         agent: "prime-agent",
+        modelsUsed: ["prime-model"],
         inputTokens: 1,
       }],
       sources: ["ccusage", "prime-agent"],
@@ -249,6 +361,7 @@ test("Cursor supplemental usage also keeps v1 wire provenance compatible", () =>
       daily: [{
         date: "2026-08-22",
         agent: "cursor",
+        modelsUsed: ["composer"],
         inputTokens: 4,
       }],
       sources: ["ccusage", "cursor"],
@@ -273,7 +386,12 @@ test("buildWirePayload drops rows whose date cannot be ingested", () => {
         { date: "unknown", inputTokens: 999 },
         { date: "0000-01-01", inputTokens: 999 },
         { date: "2026-02-30", inputTokens: 999 },
-        { date: "2026-08-22", inputTokens: 1 },
+        {
+          date: "2026-08-22",
+          agent: "codex",
+          modelsUsed: ["gpt-5"],
+          inputTokens: 1,
+        },
       ],
     },
     { now: NOW },
@@ -414,9 +532,9 @@ test("sync applies its day window after dropping invalid source dates", async ()
     getClientIdFn: () => CLIENT_ID,
     loadUsageFn: () => ({
       daily: [
-        { date: "2026-08-20", inputTokens: 1 },
-        { date: "2026-08-21", inputTokens: 2 },
-        { date: "2026-08-22", inputTokens: 3 },
+        { date: "2026-08-20", agent: "codex", modelsUsed: ["gpt-5"], inputTokens: 1 },
+        { date: "2026-08-21", agent: "codex", modelsUsed: ["gpt-5"], inputTokens: 2 },
+        { date: "2026-08-22", agent: "codex", modelsUsed: ["gpt-5"], inputTokens: 3 },
         { date: "unknown", inputTokens: 999 },
       ],
     }),
@@ -570,8 +688,8 @@ test("sync --all dry-run retains every valid historical usage day", async () => 
       collectionDays = options.days;
       return {
         daily: [
-          { date: "2025-06-08", inputTokens: 1 },
-          { date: "2026-08-31", outputTokens: 2 },
+          { date: "2025-06-08", agent: "cursor", modelsUsed: ["composer"], inputTokens: 1 },
+          { date: "2026-08-31", agent: "claude", modelsUsed: ["claude-opus-4-8"], outputTokens: 2 },
         ],
       };
     },
@@ -599,7 +717,12 @@ test("sync dry-run uses the collector timezone without network access", async ()
 
   await main(["sync", "--dry-run"], {}, {
     loadUsageFn: () => ({
-      daily: [{ date: "2026-08-22", inputTokens: 10 }],
+      daily: [{
+        date: "2026-08-22",
+        agent: "codex",
+        modelsUsed: ["gpt-5"],
+        inputTokens: 10,
+      }],
       timezone: "UTC",
     }),
     getClientIdFn: () => CLIENT_ID,
@@ -723,7 +846,14 @@ test("sync uses the Cribble endpoint by default and sends bearer auth", async ()
   let request;
 
   await main(["sync"], { CRIBBLE_API_KEY: API_KEY }, {
-    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", outputTokens: 20 }] }),
+    loadUsageFn: () => ({
+      daily: [{
+        date: "2026-08-22",
+        agent: "codex",
+        modelsUsed: ["gpt-5"],
+        outputTokens: 20,
+      }],
+    }),
     getClientIdFn: () => CLIENT_ID,
     timezoneFn: () => "Asia/Manila",
     mergeSyncStateFn: () => {},

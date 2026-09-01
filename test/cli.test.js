@@ -189,7 +189,14 @@ test("successful sync records durable attempt and result state", async () => {
 
   await main(["sync"], {}, {
     getClientIdFn: () => CLIENT_ID,
-    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+    loadUsageFn: () => ({
+      daily: [{
+        date: "2026-08-22",
+        agent: "codex",
+        modelsUsed: ["gpt-5"],
+        inputTokens: 10,
+      }],
+    }),
     log: (value) => output.push(value),
     mergeSyncStateFn: (state) => states.push(state),
     nowFn: () => times.shift() ?? new Date("2026-08-22T00:00:03.000Z"),
@@ -229,7 +236,14 @@ test("foreground sync runs the interactive progress lifecycle", async () => {
       };
     },
     getClientIdFn: () => CLIENT_ID,
-    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+    loadUsageFn: () => ({
+      daily: [{
+        date: "2026-08-22",
+        agent: "codex",
+        modelsUsed: ["gpt-5"],
+        inputTokens: 10,
+      }],
+    }),
     log: () => {},
     mergeSyncStateFn: () => {},
     output: { isTTY: true, write() {} },
@@ -265,7 +279,14 @@ test("scheduled sync disables progress animation even with a TTY", async () => {
       return { start() {}, update() {}, stop() {} };
     },
     getClientIdFn: () => CLIENT_ID,
-    loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+    loadUsageFn: () => ({
+      daily: [{
+        date: "2026-08-22",
+        agent: "codex",
+        modelsUsed: ["gpt-5"],
+        inputTokens: 10,
+      }],
+    }),
     mergeSyncStateFn: () => {},
     output: { isTTY: true, write() {} },
     postSnapshotWithRetryFn: async () => ({
@@ -292,7 +313,14 @@ test("failed sync records an actionable error state", async () => {
   await assert.rejects(
     main(["sync"], {}, {
       getClientIdFn: () => CLIENT_ID,
-      loadUsageFn: () => ({ daily: [{ date: "2026-08-22", inputTokens: 10 }] }),
+      loadUsageFn: () => ({
+        daily: [{
+          date: "2026-08-22",
+          agent: "codex",
+          modelsUsed: ["gpt-5"],
+          inputTokens: 10,
+        }],
+      }),
       mergeSyncStateFn: (state) => states.push(state),
       postSnapshotWithRetryFn: async () => {
         throw new Error("network unavailable");

@@ -243,6 +243,46 @@ test("Cursor ledger preserves usage after the local state database disappears", 
   }
 });
 
+test("Cursor ledger retains the full recorded history", () => {
+  const home = tempHome("full-history-");
+  const ledgerPath = join(home, "cursor-usage-ledger.json");
+  const historical = {
+    date: "2025-06-08",
+    provider: "cursor",
+    overlapProviders: ["cursor"],
+    agent: "cursor",
+    modelsUsed: ["composer"],
+    inputTokens: 100,
+    outputTokens: 20,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 880,
+    totalCost: 0,
+  };
+  writeFileSync(
+    ledgerPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      timezone: "UTC",
+      records: { ["a".repeat(64)]: historical },
+    }),
+  );
+  try {
+    const report = loadCursorUsage(
+      { HOME: home, CRIBBLE_CURSOR: "0" },
+      {
+        platform: "darwin",
+        homes: [{ scope: "native", home }],
+        cursorLedgerFilePath: ledgerPath,
+        timezone: "UTC",
+        nowFn: () => new Date("2026-08-31T00:00:00.000Z"),
+      },
+    );
+    assert.deepEqual(report.daily, [historical]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("Cursor refresh problems keep the ledger and warn instead of failing", () => {
   const home = tempHome("fail-");
   const seeded = seedCursorInstall(home, { platform: "linux" });
