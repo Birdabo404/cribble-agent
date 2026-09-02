@@ -10,14 +10,12 @@
 
 ## <img src="assets/cribble-mark.svg" width="16" height="16" alt=""> Get started
 
-Requires Node.js 18+ on arm64 or x64 macOS, Linux, or Windows.
-
-Cross-platform support is currently in the opt-in `beta` lane. The `latest`
-lane remains the stable macOS-only 1.3 release until the same beta build has
-been validated on real macOS, Linux, and Windows machines.
+Requires Node.js 18+ on arm64 or x64 macOS, Linux, or Windows. The 1.4 release
+is stable for macOS; Linux and Windows support remains a controlled beta until
+real-machine enrollment is complete on both platforms.
 
 ```sh
-npm install --global cribble-agent@beta
+npm install --global cribble-agent
 cribble connect
 cribble sync
 cribble start
@@ -99,7 +97,7 @@ Background runs, CI, pipes, and redirected output stay plain. Use
 ## <img src="assets/cribble-mark.svg" width="16" height="16" alt=""> Update
 
 ```sh
-npm install --global cribble-agent@beta
+npm install --global cribble-agent
 cribble start
 cribble status
 ```

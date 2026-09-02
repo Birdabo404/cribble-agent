@@ -135,11 +135,12 @@ is installed until the pilot explicitly runs `background install`.
 
 The npm release uses two lanes while cross-platform support is validated:
 
-- `latest` stays on stable macOS release `1.3.0`;
-- `beta` starts at `1.4.0-beta.1` for opt-in macOS, Linux, and Windows testers.
+- `latest` is `1.4.0`, stable for macOS;
+- `beta` remains available for opt-in Linux and Windows testers until both
+  platforms complete real-machine enrollment.
 
-Promote the tested 1.4 build to `latest` instead of maintaining a separate
-stable implementation.
+The stable and beta lanes use the same implementation; platform rollout is
+controlled through onboarding rather than a separate macOS code path.
 
 Each phase stops for tests and review. Production migration, deployment,
 credential-store mutation, background-service installation, and beta enrollment
