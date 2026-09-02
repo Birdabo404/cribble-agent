@@ -486,3 +486,25 @@ test("Windows collection does not double-count native and WSL aggregates", () =>
     /cannot be record-deduplicated safely/,
   );
 });
+
+test("loadUsage deduplicates the same request across supplemental and Ollama sources", () => {
+  const shared = { requestId: "same-request", occurredAt: "2026-08-22T12:34:56.000Z", agent: "hermes", provider: "ollama", runtime: "ollama", model: "qwen2.5:3b", inputTokens: 11, outputTokens: 7, billedCostUsd: 0 };
+  const result = loadUsage({ CCUSAGE_BIN: "/opt/ccusage" }, {
+    execFileSyncFn: () => '{"daily":[]}',
+    loadSupplementalUsageFn: () => ({ daily: [], sources: ["prime-agent"], events: [{ ...shared, eventId: "supplemental-copy", provenance: ["prime-agent"] }] }),
+    loadOllamaUsageFn: () => ({ sources: ["ollama"], events: [{ ...shared, eventId: "ollama-copy", provenance: ["local_runtime_ledger"] }] }),
+  });
+  assert.equal(result.events.length, 1);
+  assert.deepEqual(result.events[0].provenance.sort(), ["local_runtime_ledger", "prime-agent"]);
+});
+
+test("loadUsage fails closed on conflicting cross-source request facts and keeps unrelated equal counts", () => {
+  const base = { occurredAt: "2026-08-22T12:34:56.000Z", agent: "hermes", provider: "ollama", runtime: "ollama", model: "qwen2.5:3b", inputTokens: 11, outputTokens: 7, billedCostUsd: 0 };
+  const invoke = (ollamaEvents) => loadUsage({ CCUSAGE_BIN: "/opt/ccusage" }, {
+    execFileSyncFn: () => '{"daily":[]}',
+    loadSupplementalUsageFn: () => ({ daily: [], events: [{ ...base, eventId: "prime-1", requestId: "req-1", provenance: ["prime-agent"] }] }),
+    loadOllamaUsageFn: () => ({ sources: ["ollama"], events: ollamaEvents }),
+  });
+  assert.throws(() => invoke([{ ...base, eventId: "ollama-1", requestId: "req-1", outputTokens: 8, provenance: ["ollama"] }]), /conflicting request identity/);
+  assert.equal(invoke([{ ...base, eventId: "ollama-2", requestId: "req-2", provenance: ["ollama"] }]).events.length, 2);
+});
