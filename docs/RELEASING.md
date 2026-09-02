@@ -5,7 +5,7 @@ does not use a long-lived npm write token.
 
 ## Current npm security posture
 
-As of `1.3.0`, the `cribble-agent` package's trusted publisher is configured
+As of `1.4.0`, the `cribble-agent` package's trusted publisher is configured
 with these exact values:
 
 - provider: GitHub Actions

@@ -10,20 +10,23 @@ package does not connect an account and does not enable background syncing.
    Linux testers also need `secret-tool` for secure key storage and a systemd
    user session for automatic sync.
 2. Ask them to create a new Agent key in signed-in Cribble Account Settings.
-3. Install and connect the CLI:
+3. Install and connect the CLI. Use the stable lane for macOS:
 
    ```sh
-   npm install --global cribble-agent@beta
+   npm install --global cribble-agent
    cribble connect
    cribble sync
    cribble status
    ```
 
+   Linux and Windows testers should install `cribble-agent@beta` until their
+   real-machine enrollment gates are complete.
+
    If npm reports a root-owned cache, do not rerun the install with `sudo`.
    Use a fresh user-owned cache instead:
 
    ```sh
-   npm --cache "$HOME/.npm-user-cache" install --global cribble-agent@beta
+   npm --cache "$HOME/.npm-user-cache" install --global cribble-agent
    ```
 
 4. Confirm the foreground receipt has the expected date range and totals.
@@ -116,7 +119,7 @@ uninstall or pause the background job, then create and connect a replacement.
 ## Update a tester
 
 ```sh
-npm install --global cribble-agent@beta
+npm install --global cribble-agent
 cribble start
 cribble status
 ```
@@ -124,6 +127,9 @@ cribble status
 Re-running `cribble start` is deliberate: it refreshes the launchd job,
 systemd user timer, or Windows scheduled task to the current installed CLI and
 Node paths. It does not create or replace the Agent key.
+
+Use `cribble-agent@beta` instead for Linux and Windows testers while those
+platforms remain in controlled beta.
 
 ## Rollout gate
 
