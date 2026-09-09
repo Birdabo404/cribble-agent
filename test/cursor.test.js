@@ -290,7 +290,7 @@ test("Cursor refresh problems keep the ledger and warn instead of failing", () =
   }
 });
 
-test("Cursor token counts accept separators and fail closed when unreadable", () => {
+test("Cursor CSV accepts included costs and separators but rejects corrupt values", () => {
   const header =
     "Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Cost";
   const separators = parseCursorCsv(
@@ -299,12 +299,20 @@ test("Cursor token counts accept separators and fail closed when unreadable", ()
   assert.equal(separators[0].inputTokens, 1234);
   assert.equal(separators[0].cacheWriteTokens, 1266);
   assert.equal(separators[0].cost, 1000.5);
+  const included = parseCursorCsv(
+    `${header}\n2026-08-25,gpt-5,80,80,0,20,Included\n`,
+  );
+  assert.equal(included[0].cost, 0);
   assert.throws(
     () => parseCursorCsv(`${header}\n2026-08-25,gpt-5,80,eighty,0,20,0.40\n`),
     /unreadable token count/,
   );
   assert.throws(
     () => parseCursorCsv(`${header}\n2026-08-25,gpt-5,80,80,0,20,-0.40\n`),
+    /unreadable cost/,
+  );
+  assert.throws(
+    () => parseCursorCsv(`${header}\n2026-08-25,gpt-5,80,80,0,20,unknown\n`),
     /unreadable cost/,
   );
 });
