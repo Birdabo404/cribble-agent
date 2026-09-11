@@ -438,6 +438,61 @@ test("renderSnapshot produces a compact human-readable report", () => {
   assert.doesNotMatch(rendered, /modelBreakdowns/);
 });
 
+test("sync --all attributes ccusage agent costs to real providers without upload", () => {
+  const { days } = parseArgs(["sync", "--all"]);
+  const snapshot = buildSnapshot(
+    {
+      daily: [{
+        date: "2026-08-01",
+        agent: "all",
+        agents: [
+          {
+            agent: "hermes",
+            inputTokens: 40,
+            outputTokens: 10,
+            totalCost: 0.2,
+            modelBreakdowns: [{
+              modelName: "shared/free-model",
+              inputTokens: 40,
+              outputTokens: 10,
+              cost: 0.2,
+            }],
+          },
+          { agent: "codex", inputTokens: 50, outputTokens: 10, totalCost: 0.1 },
+        ],
+        metadata: { agents: ["hermes", "codex"] },
+        inputTokens: 90,
+        outputTokens: 20,
+        totalCost: 0.3,
+      }],
+      providerRoutes: [
+        { model: "shared/free-model", provider: "nous", totalTokens: 3 },
+        { model: "shared/free-model", provider: "openrouter", totalTokens: 1 },
+      ],
+    },
+    { days, now: NOW },
+  );
+  assert.deepEqual(
+    snapshot.providers.map((row) => [row.name, row.totalTokens, row.costUsd]),
+    [
+      ["nous", 37, 0.15],
+      ["codex", 60, 0.1],
+      ["openrouter", 13, 0.05],
+    ],
+  );
+  const rendered = renderSnapshot(snapshot, { color: false });
+  assert.match(rendered, /nous\s+37 tokens · \$0\.15 estimated/);
+  assert.match(rendered, /openrouter\s+13 tokens · \$0\.05 estimated/);
+  assert.doesNotMatch(rendered, /\bhermes\s+\d/);
+  const payload = buildWirePayload(snapshot, {
+    clientId: "123e4567-e89b-42d3-a456-426614174000",
+    timezone: "UTC",
+    cliVersion: "1.4.0-beta.4",
+    days,
+  });
+  assert.equal(Object.hasOwn(payload, "providers"), false);
+});
+
 test("usage report has stable plain and styled snapshots", () => {
   const snapshot = buildSnapshot(
     {

@@ -44,6 +44,24 @@ test("sync receipt has stable plain and styled forms", () => {
   assert.equal(stripVTControlCharacters(styled), plain);
 });
 
+test("sync receipt lists per-provider token and cost totals", () => {
+  const plain = renderSyncReceipt(
+    {
+      ...RECEIPT,
+      payload: {
+        ...RECEIPT.payload,
+        providers: [
+          { name: "nous", totalTokens: 3000, costUsd: 3.5 },
+          { name: "openrouter", totalTokens: 18, costUsd: 0 },
+        ],
+      },
+    },
+    { color: false },
+  );
+  assert.match(plain, /nous 3,000 tokens · \$3\.50 estimated/);
+  assert.match(plain, /openrouter 18 tokens · \$0\.00 estimated/);
+});
+
 test("color and animation respect terminal, CI, background, and NO_COLOR state", () => {
   const tty = { isTTY: true };
   const pipe = { isTTY: false };

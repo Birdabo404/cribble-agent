@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { dirname, resolve } = require("node:path");
 
 const {
+  claudeConfigDirectories,
   collectorEnvironment,
   collectionSince,
   loadUsage,
@@ -13,7 +14,40 @@ const {
 
 const isolatedUsage = {
   loadSupplementalUsageFn: () => ({ daily: [] }),
+  loadHermesProviderRoutesFn: () => [],
 };
+
+test("Claude profile directories are validated and deduplicated by real path", () => {
+  const canonical = new Map([["/profiles/home", "/data/home"], ["/profiles/home-link", "/data/home"], ["/profiles/work", "/data/work"]]);
+  const options = { existsSyncFn: (path) => canonical.has(path), realpathSyncFn: (path) => canonical.get(path), statSyncFn: () => ({ isDirectory: () => true }) };
+  assert.deepEqual(claudeConfigDirectories(" /profiles/home,/profiles/home-link,/profiles/work ", options), ["/data/home", "/data/work"]);
+  assert.throws(() => claudeConfigDirectories("relative", options), /absolute paths/);
+  assert.throws(() => claudeConfigDirectories("\n", options), /control characters/);
+  assert.throws(() => claudeConfigDirectories("/missing", options), /existing directory/);
+});
+
+test("extra Claude profiles merge only Claude rows and fail closed", () => {
+  const invocations = [];
+  const options = {
+    ...isolatedUsage,
+    existsSyncFn: () => true, realpathSyncFn: (path) => path, statSyncFn: () => ({ isDirectory: () => true }),
+    execFileSyncFn: (_command, args, execOptions) => {
+      invocations.push({ args, home: execOptions.env.CLAUDE_CONFIG_DIR });
+      if (execOptions.env.CLAUDE_CONFIG_DIR === "/profiles/work") return JSON.stringify({ daily: [
+        { date: "2026-08-25", agent: "claude", inputTokens: 20 },
+        { date: "2026-08-25", agent: "codex", inputTokens: 999 },
+      ] });
+      return JSON.stringify({ daily: [{ date: "2026-08-25", agent: "claude", inputTokens: 10 }] });
+    },
+  };
+  const env = { CCUSAGE_BIN: "/opt/ccusage", HOME: "/profiles", CRIBBLE_CLAUDE_CONFIG_DIRS: "/profiles/.claude,/profiles/work" };
+  const result = loadUsage(env, options);
+  assert.equal(result.daily.reduce((sum, row) => sum + row.inputTokens, 0), 30);
+  assert.equal(result.daily.some((row) => row.inputTokens === 999), false);
+  assert.equal(invocations.length, 2);
+  assert.ok(invocations[1].args.includes("--by-agent"));
+  assert.throws(() => loadUsage(env, { ...options, execFileSyncFn: (_c, _a, o) => { if (o.env.CLAUDE_CONFIG_DIR) throw new Error("profile failed"); return '{"daily":[]}'; } }), /profile failed/);
+});
 
 function fakeCcusageInstall() {
   const packagePath = resolve("/app/node_modules/ccusage/package.json");
@@ -82,6 +116,7 @@ test("loadUsage invokes the configured collector without a shell", () => {
   assert.deepEqual(invocation.args, [
     "daily",
     "--json",
+    "--by-agent",
     "--timezone",
     "UTC",
   ]);
@@ -130,6 +165,7 @@ test("loadUsage constrains ccusage to the requested timezone date window", () =>
   assert.deepEqual(invocation.args, [
     "daily",
     "--json",
+    "--by-agent",
     "--since",
     "2026-08-20",
     "--timezone",
@@ -226,6 +262,7 @@ test("loadUsage invokes the bundled collector through an absolute Node path", ()
     binaryPath,
     "daily",
     "--json",
+    "--by-agent",
     "--timezone",
     "UTC",
   ]);
@@ -259,6 +296,7 @@ test("loadUsage never passes a Windows npm shell shim to node.exe", () => {
     binaryPath,
     "daily",
     "--json",
+    "--by-agent",
     "--timezone",
     "UTC",
   ]);
@@ -485,4 +523,26 @@ test("Windows collection does not double-count native and WSL aggregates", () =>
       ),
     /cannot be record-deduplicated safely/,
   );
+});
+
+test("loadUsage deduplicates the same request across supplemental and Ollama sources", () => {
+  const shared = { requestId: "same-request", occurredAt: "2026-08-22T12:34:56.000Z", agent: "hermes", provider: "ollama", runtime: "ollama", model: "qwen2.5:3b", inputTokens: 11, outputTokens: 7, billedCostUsd: 0 };
+  const result = loadUsage({ CCUSAGE_BIN: "/opt/ccusage" }, {
+    execFileSyncFn: () => '{"daily":[]}',
+    loadSupplementalUsageFn: () => ({ daily: [], sources: ["prime-agent"], events: [{ ...shared, eventId: "supplemental-copy", provenance: ["prime-agent"] }] }),
+    loadOllamaUsageFn: () => ({ sources: ["ollama"], events: [{ ...shared, eventId: "ollama-copy", provenance: ["local_runtime_ledger"] }] }),
+  });
+  assert.equal(result.events.length, 1);
+  assert.deepEqual(result.events[0].provenance.sort(), ["local_runtime_ledger", "prime-agent"]);
+});
+
+test("loadUsage fails closed on conflicting cross-source request facts and keeps unrelated equal counts", () => {
+  const base = { occurredAt: "2026-08-22T12:34:56.000Z", agent: "hermes", provider: "ollama", runtime: "ollama", model: "qwen2.5:3b", inputTokens: 11, outputTokens: 7, billedCostUsd: 0 };
+  const invoke = (ollamaEvents) => loadUsage({ CCUSAGE_BIN: "/opt/ccusage" }, {
+    execFileSyncFn: () => '{"daily":[]}',
+    loadSupplementalUsageFn: () => ({ daily: [], events: [{ ...base, eventId: "prime-1", requestId: "req-1", provenance: ["prime-agent"] }] }),
+    loadOllamaUsageFn: () => ({ sources: ["ollama"], events: ollamaEvents }),
+  });
+  assert.throws(() => invoke([{ ...base, eventId: "ollama-1", requestId: "req-1", outputTokens: 8, provenance: ["ollama"] }]), /conflicting request identity/);
+  assert.equal(invoke([{ ...base, eventId: "ollama-2", requestId: "req-2", provenance: ["ollama"] }]).events.length, 2);
 });

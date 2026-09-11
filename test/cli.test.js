@@ -111,6 +111,19 @@ test("parseArgs models the explicit background lifecycle", () => {
   );
 });
 
+test("--all selects the maximum foreground history window", () => {
+  assert.equal(parseArgs(["--all"]).days, 365);
+  assert.equal(parseArgs(["sync", "--all"]).days, 365);
+  assert.throws(
+    () => parseArgs(["sync", "--all", "--days", "30"]),
+    /--all cannot be used with --days/,
+  );
+  assert.throws(
+    () => parseArgs(["start", "--all"]),
+    /--all can only be used with show or sync/,
+  );
+});
+
 test("operational commands fail before sync on unknown platforms", async () => {
   let usageRead = false;
   let networkCalled = false;
