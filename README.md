@@ -60,8 +60,15 @@ unreadable Prime scans fail instead of uploading a lower replacement total,
 and Cursor refresh problems (signed out, expired session, offline) keep the
 last complete ledger and print a warning instead of blocking the sync. Set
 `CRIBBLE_CURSOR=0` to skip refreshing Cursor while keeping the last complete
-ledger. Cursor SQLite reading uses the system `sqlite3` CLI when available and
-falls back to `node:sqlite` on Node.js 22+.
+ledger. Grok Bot desktop chats that appear in the same Cursor usage export as
+`grok-bot-*` (and legacy `sand-default` / `sand-automation` / `sand-cua`) models
+are attributed separately as provider/agent `grok-bot`, not as Cursor IDE and
+not as Grok Build CLI. Set `CRIBBLE_GROK_BOT=0` to skip refreshing Grok Bot
+while keeping its last complete ledger; Bot collection reuses the Cursor
+session cookie path and shares one CSV fetch when both collectors are enabled.
+Existing Cursor ledgers written before this split may still contain mixed Bot
+days until refreshed. Cursor SQLite reading uses the system `sqlite3` CLI when
+available and falls back to `node:sqlite` on Node.js 22+.
 
 Set `HERMES_HOME` to one Hermes root, or to ccusage's comma-separated list of
 roots, when named Hermes profiles live outside the default location. Cribble
