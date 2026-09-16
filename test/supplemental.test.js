@@ -156,6 +156,7 @@ test("Linux discovery adds Prime Agent on top of ccusage", () => {
         platform: "linux",
         homes: [{ scope: "native", home }],
         loadCursorUsageFn: () => ({ daily: [] }),
+        loadGrokBotUsageFn: () => ({ daily: [] }),
       },
     );
     assert.equal(supplemental.daily.length, 1);
@@ -177,6 +178,7 @@ test("Prime Agent ledger preserves usage after session rotation", () => {
     timezone: "UTC",
     nowFn: () => new Date("2026-08-26T00:00:00.000Z"),
     loadCursorUsageFn: () => ({ daily: [] }),
+        loadGrokBotUsageFn: () => ({ daily: [] }),
   };
   try {
     mkdirSync(sessions, { recursive: true });
@@ -267,6 +269,7 @@ test("Prime Agent byte limits fail instead of returning a partial total", () => 
             homes: [{ scope: "native", home }],
             statSyncFn,
             loadCursorUsageFn: () => ({ daily: [] }),
+        loadGrokBotUsageFn: () => ({ daily: [] }),
           },
         ),
       /refusing a partial usage report/,
@@ -274,4 +277,81 @@ test("Prime Agent byte limits fail instead of returning a partial total", () => 
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("loadSupplementalUsage merges Grok Bot daily when present", () => {
+  const home = mkdtempSync(join(tmpdir(), "cribble-grok-bot-merge-"));
+  try {
+    const supplemental = loadSupplementalUsage(
+      { HOME: home },
+      {
+        platform: "linux",
+        homes: [{ scope: "native", home }],
+        loadCursorUsageFn: () => ({
+          daily: [{
+            date: "2026-08-25",
+            provider: "cursor",
+            overlapProviders: ["cursor"],
+            agent: "cursor",
+            modelsUsed: ["gpt-5"],
+            inputTokens: 10,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            totalCost: 0,
+          }],
+        }),
+        loadGrokBotUsageFn: () => ({
+          daily: [{
+            date: "2026-08-25",
+            provider: "grok-bot",
+            overlapProviders: ["grok-bot"],
+            agent: "grok-bot",
+            modelsUsed: ["grok-bot-default"],
+            inputTokens: 40,
+            outputTokens: 10,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            totalCost: 0,
+          }],
+        }),
+      },
+    );
+    assert.equal(supplemental.daily.length, 2);
+    assert.ok(supplemental.daily.some((row) => row.agent === "cursor"));
+    assert.ok(supplemental.daily.some((row) => row.agent === "grok-bot"));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("canonicalProvider maps grokbot alias and keeps Bot distinct from grok", () => {
+  const { canonicalProvider } = require("../lib/supplemental");
+  assert.equal(canonicalProvider("grok-bot"), "grok-bot");
+  assert.equal(canonicalProvider("Grok Bot"), "grok-bot");
+  assert.equal(canonicalProvider("grok"), "grok");
+});
+
+test("ccusage grok does not suppress supplemental grok-bot", () => {
+  const merged = mergeUsageReports(
+    [{
+      daily: [{
+        date: "2026-08-25",
+        metadata: { agents: ["grok"] },
+        inputTokens: 10,
+      }],
+    }],
+    {
+      daily: [{
+        date: "2026-08-25",
+        provider: "grok-bot",
+        overlapProviders: ["grok-bot"],
+        agent: "grok-bot",
+        inputTokens: 40,
+      }],
+    },
+  );
+  assert.equal(merged.daily.length, 2);
+  assert.ok(merged.daily.some((row) => row.agent === "grok-bot"));
+  assert.deepEqual(merged.sources, ["ccusage", "grok-bot"]);
 });

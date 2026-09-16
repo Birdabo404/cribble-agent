@@ -21,8 +21,10 @@ const {
   cursorSafeText,
   extractCursorSessionToken,
   findCursorInstall,
+  isGrokBotModel,
   loadCursorUsage,
   parseCursorCsv,
+  partitionCursorCsvRecords,
   resolveCursorPaths,
 } = require("../lib/cursor");
 
@@ -124,14 +126,17 @@ test("Cursor discovery prefers a native install over a WSL mirror", () => {
 
 test("Cursor CSV parsing is header-based and timezone-aware", () => {
   const records = parseCursorCsv(CSV_FIXTURE);
-  assert.equal(records.length, 3);
+  assert.equal(records.length, 6);
   assert.equal(records[0].inputTokens, 100);
   assert.equal(records[0].cacheWriteTokens, 50);
   assert.equal(records[0].cacheReadTokens, 50);
   assert.equal(records[0].outputTokens, 35);
   assert.equal(records[0].cost, 0.12);
+  assert.equal(records[3].cost, 0);
+  assert.equal(records[3].model, "grok-bot-default");
 
-  const utc = aggregateCursorDaily(records, "UTC");
+  const { cursorRecords } = partitionCursorCsvRecords(records);
+  const utc = aggregateCursorDaily(cursorRecords, "UTC");
   assert.equal(utc.length, 3);
   assert.deepEqual(
     [...new Set(utc.map((row) => row.date))].sort(),
@@ -141,7 +146,7 @@ test("Cursor CSV parsing is header-based and timezone-aware", () => {
   assert.equal(sonnet.inputTokens, 100);
   assert.equal(sonnet.cacheCreationTokens, 50);
 
-  const manila = aggregateCursorDaily(records, "Asia/Manila");
+  const manila = aggregateCursorDaily(cursorRecords, "Asia/Manila");
   assert.ok(manila.some((row) => row.date === "2026-08-26"));
 });
 
@@ -303,6 +308,10 @@ test("Cursor CSV accepts included costs and separators but rejects corrupt value
     `${header}\n2026-08-25,gpt-5,80,80,0,20,Included\n`,
   );
   assert.equal(included[0].cost, 0);
+  const free = parseCursorCsv(
+    `${header}\n2026-08-25,grok-bot-default,40,40,0,10,Free\n`,
+  );
+  assert.equal(free[0].cost, 0);
   assert.throws(
     () => parseCursorCsv(`${header}\n2026-08-25,gpt-5,80,eighty,0,20,0.40\n`),
     /unreadable token count/,
@@ -508,5 +517,62 @@ test("loadUsage merges Cursor with ccusage on macOS and Linux", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
+  }
+});
+
+test("literal Free cost parses as zero like Included", () => {
+  const header =
+    "Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Cost";
+  const rows = parseCursorCsv(
+    `${header}\n2026-08-25,grok-bot-cua,30,30,0,8,Free\n`,
+  );
+  assert.equal(rows[0].cost, 0);
+  assert.equal(rows[0].inputTokens, 30);
+});
+
+test("Grok Bot models are partitioned out of Cursor aggregates", () => {
+  assert.equal(isGrokBotModel("grok-bot-default"), true);
+  assert.equal(isGrokBotModel("grok-bot-automation"), true);
+  assert.equal(isGrokBotModel("grok-bot-cua"), true);
+  assert.equal(isGrokBotModel("sand-default"), true);
+  assert.equal(isGrokBotModel("sand-automation"), true);
+  assert.equal(isGrokBotModel("sand-cua"), true);
+  assert.equal(isGrokBotModel("claude-4-sonnet"), false);
+  assert.equal(isGrokBotModel("grok-4.6-build"), false);
+
+  const { cursorRecords, grokBotRecords } = partitionCursorCsvRecords(
+    parseCursorCsv(CSV_FIXTURE),
+  );
+  assert.equal(cursorRecords.length, 3);
+  assert.equal(grokBotRecords.length, 3);
+  assert.ok(cursorRecords.every((row) => !isGrokBotModel(row.model)));
+  assert.ok(grokBotRecords.every((row) => isGrokBotModel(row.model)));
+
+  const home = tempHome("partition-");
+  const seeded = seedCursorInstall(home, { platform: "linux" });
+  try {
+    const result = loadCursorUsage(
+      { HOME: home },
+      {
+        platform: "linux",
+        homes: [{ scope: "native", home }],
+        timezone: "UTC",
+        nowFn: () => new Date("2026-08-26T00:00:00.000Z"),
+        cliConfigPath: seeded.cliConfigPath,
+        readSqliteFirstValueFn: () => seeded.jwt,
+        fetchCursorCsvFn: () => CSV_FIXTURE,
+      },
+    );
+    assert.equal(result.daily.length, 3);
+    assert.ok(result.daily.every((row) => row.agent === "cursor"));
+    assert.ok(
+      result.daily.every((row) => !String(row.modelsUsed[0]).startsWith("grok-bot-")),
+    );
+    assert.equal(
+      result.daily.reduce((sum, row) => sum + row.inputTokens, 0),
+      190,
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });
