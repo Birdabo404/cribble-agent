@@ -101,6 +101,9 @@ test("withSyncLock recovers an old orphaned lock", async () => {
     const result = await withSyncLock(async () => "recovered", {
       filePath,
       now: () => new Date("2026-08-22T00:00:00.000Z"),
+      // No literal PID is reliably dead: Linux defaults pid_max to 4194304,
+      // and thread IDs share the space, so 999999 can be a live task.
+      processIsRunningFn: () => false,
     });
 
     assert.equal(result, "recovered");
