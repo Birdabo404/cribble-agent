@@ -49,7 +49,7 @@
     "access": "public"
   },
   "dependencies": {
-    "ccusage": "20.0.20",
+    "ccusage": "20.0.26",
     "proper-lockfile": "^4.1.2"
   }
 }
